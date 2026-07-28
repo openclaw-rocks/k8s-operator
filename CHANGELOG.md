@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.3](https://github.com/paperclipinc/openclaw-operator/compare/v0.38.2...v0.38.3) (2026-07-28)
+
+
+### Bug Fixes
+
+* use fully-qualified Docker Hub image names to prevent ImageInspectError ([#562](https://github.com/paperclipinc/openclaw-operator/issues/562)) ([8aabb56](https://github.com/paperclipinc/openclaw-operator/commit/8aabb56ee2e30708e48f50961b6c131508f81b71))
+
 ## [0.38.2](https://github.com/paperclipinc/openclaw-operator/compare/v0.38.1...v0.38.2) (2026-07-28)
 
 

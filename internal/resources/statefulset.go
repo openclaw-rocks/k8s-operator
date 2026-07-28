@@ -2267,7 +2267,7 @@ func buildOTelCollectorContainer(instance *openclawv1alpha1.OpenClawInstance) co
 		},
 		Ports: []corev1.ContainerPort{
 			{
-				Name:          "metrics",
+				Name:          MetricsPortName,
 				ContainerPort: MetricsPort(instance),
 				Protocol:      corev1.ProtocolTCP,
 			},

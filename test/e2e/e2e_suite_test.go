@@ -1070,9 +1070,12 @@ var _ = Describe("OpenClawInstance Controller", func() {
 				}, service)
 			}, timeout, interval).Should(Succeed())
 
-			Expect(service.Spec.Ports).To(HaveLen(2))
+			// Two custom ports plus the operator-managed metrics port, which is
+			// enabled by default and must stay present so the ServiceMonitor
+			// endpoint resolves (#577).
+			Expect(service.Spec.Ports).To(HaveLen(3))
 
-			var foundHTTP, foundGRPC bool
+			var foundHTTP, foundGRPC, foundMetrics bool
 			for _, p := range service.Spec.Ports {
 				if p.Name == "http" && p.Port == 3978 {
 					foundHTTP = true
@@ -1082,7 +1085,13 @@ var _ = Describe("OpenClawInstance Controller", func() {
 					foundGRPC = true
 					Expect(p.TargetPort.IntValue()).To(Equal(50051))
 				}
+				if p.Name == resources.MetricsPortName {
+					foundMetrics = true
+				}
+				// The workload defaults must still be replaced by the custom ports.
+				Expect(p.Name).NotTo(BeElementOf("gateway", "canvas", "chromium"))
 			}
+			Expect(foundMetrics).To(BeTrue(), "managed metrics port must survive custom ports")
 			Expect(foundHTTP).To(BeTrue(), "Service should have http port 3978")
 			Expect(foundGRPC).To(BeTrue(), "Service should have grpc port 50051")
 

@@ -177,6 +177,12 @@ const (
 	// DefaultMetricsPort is the default port for the Prometheus metrics endpoint
 	DefaultMetricsPort int32 = 9090
 
+	// MetricsPortName is the named port the metrics endpoint is exposed under.
+	// The Service port, the container port and the ServiceMonitor endpoint must
+	// all agree on this name — a ServiceMonitor endpoint that names a port the
+	// Service does not expose resolves to no target and scrapes nothing.
+	MetricsPortName = "metrics"
+
 	// DefaultOTelCollectorImage is the default image for the OTel Collector sidecar.
 	// The core distribution is lightweight (~80MB) and includes the OTLP receiver
 	// and Prometheus exporter needed for the metrics pipeline.

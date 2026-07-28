@@ -277,6 +277,90 @@ var _ = Describe("OpenClawInstance Controller", func() {
 		})
 	})
 
+	Context("When the StatefulSet's pod is not yet ready", func() {
+		It("Should stay in Provisioning (not Running) until ReadyReplicas > 0, then flip to Running", func() {
+			instance := &openclawv1alpha1.OpenClawInstance{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "sts-readiness-test",
+					Namespace: "default",
+				},
+				Spec: openclawv1alpha1.OpenClawInstanceSpec{},
+			}
+			Expect(k8sClient.Create(ctx, instance)).Should(Succeed())
+
+			instanceLookupKey := types.NamespacedName{Name: "sts-readiness-test", Namespace: "default"}
+			stsLookupKey := types.NamespacedName{Name: resources.StatefulSetName(instance), Namespace: "default"}
+
+			By("Waiting for the StatefulSet to be created")
+			Eventually(func() bool {
+				sts := &appsv1.StatefulSet{}
+				return k8sClient.Get(ctx, stsLookupKey, sts) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying the instance reports Provisioning (not Running) while the StatefulSet has zero ready replicas")
+			Eventually(func() string {
+				inst := &openclawv1alpha1.OpenClawInstance{}
+				if err := k8sClient.Get(ctx, instanceLookupKey, inst); err != nil {
+					return ""
+				}
+				return inst.Status.Phase
+			}, timeout, interval).Should(Equal(openclawv1alpha1.PhaseProvisioning))
+
+			Eventually(func() bool {
+				inst := &openclawv1alpha1.OpenClawInstance{}
+				if err := k8sClient.Get(ctx, instanceLookupKey, inst); err != nil {
+					return false
+				}
+				for _, cond := range inst.Status.Conditions {
+					if cond.Type == openclawv1alpha1.ConditionTypeReady &&
+						cond.Status == metav1.ConditionFalse &&
+						cond.Reason == "StatefulSetNotReady" {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			By("Simulating the StatefulSet's pod becoming ready (envtest has no kubelet to do this itself)")
+			Eventually(func() error {
+				sts := &appsv1.StatefulSet{}
+				if err := k8sClient.Get(ctx, stsLookupKey, sts); err != nil {
+					return err
+				}
+				sts.Status.Replicas = 1
+				sts.Status.ReadyReplicas = 1
+				return k8sClient.Status().Update(ctx, sts)
+			}, timeout, interval).Should(Succeed())
+
+			By("Verifying the instance flips to Running once the StatefulSet is ready")
+			Eventually(func() string {
+				inst := &openclawv1alpha1.OpenClawInstance{}
+				if err := k8sClient.Get(ctx, instanceLookupKey, inst); err != nil {
+					return ""
+				}
+				return inst.Status.Phase
+			}, timeout, interval).Should(Equal(openclawv1alpha1.PhaseRunning))
+
+			Eventually(func() bool {
+				inst := &openclawv1alpha1.OpenClawInstance{}
+				if err := k8sClient.Get(ctx, instanceLookupKey, inst); err != nil {
+					return false
+				}
+				for _, cond := range inst.Status.Conditions {
+					if cond.Type == openclawv1alpha1.ConditionTypeReady &&
+						cond.Status == metav1.ConditionTrue &&
+						cond.Reason == "ReconcileSucceeded" {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			By("Cleaning up")
+			Expect(k8sClient.Delete(ctx, instance)).Should(Succeed())
+		})
+	})
+
 	Context("When NetworkPolicy is configured", func() {
 		It("Should create proper ingress and egress rules", func() {
 			instance := &openclawv1alpha1.OpenClawInstance{

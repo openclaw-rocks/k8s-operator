@@ -87,11 +87,19 @@ func BuildWorkspaceConfigMap(instance *openclawv1alpha1.OpenClawInstance, extern
 	//  1. Operator-injected (ENVIRONMENT.md only - no BOOTSTRAP.md for secondary agents)
 	//  2. Inline initialFiles
 	//  3. External configMapRef entries
+	//  4. Skill pack files (from additionalWorkspaces[].skills pack: entries)
 	if instance.Spec.Workspace != nil {
 		for i := range instance.Spec.Workspace.AdditionalWorkspaces {
 			ws := &instance.Spec.Workspace.AdditionalWorkspaces[i]
 
-			// 3. External configMapRef entries (lowest)
+			// 4. Skill pack files (lowest, ConfigMap-safe keys namespaced per workspace)
+			if wsPacks := skillPacks.WorkspacePacks(ws.Name); wsPacks != nil {
+				for cmKey, content := range wsPacks.Files {
+					files[AdditionalWorkspaceCMKey(ws.Name, cmKey)] = content
+				}
+			}
+
+			// 3. External configMapRef entries (override pack files)
 			if extFiles, ok := additionalExternalFiles[ws.Name]; ok {
 				for k, v := range extFiles {
 					files[AdditionalWorkspaceCMKey(ws.Name, k)] = v

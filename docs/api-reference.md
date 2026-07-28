@@ -33,6 +33,7 @@ _Appears in:_
 | `configMapRef` _[ConfigMapNameSelector](#configmapnameselector)_ | ConfigMapRef references an external ConfigMap whose keys become workspace files. |  | Optional: \{\} <br /> |
 | `initialFiles` _object (keys:string, values:string)_ | InitialFiles maps filenames to their content (same as spec.workspace.initialFiles). |  | MaxProperties: 50 <br />Optional: \{\} <br /> |
 | `initialDirectories` _string array_ | InitialDirectories is a list of directories to create inside this workspace. |  | MaxItems: 20 <br />Optional: \{\} <br /> |
+| `skills` _string array_ | Skills is a list of skills to install scoped to this workspace, using the<br />same reference formats as the top-level spec.skills: a ClawHub skill<br />identifier (installed into workspace-<name>/skills/ via clawhub's<br />--workdir), an npm package prefixed with "npm:" (npm binaries are<br />installed globally and shared across workspaces), or a GitHub-hosted<br />skill pack prefixed with "pack:" (resolved files are seeded into<br />workspace-<name>/ and reconciled per spec.skillPackUpdatePolicy). |  | MaxItems: 20 <br />Optional: \{\} <br /> |
 
 
 #### AutoScalingSpec

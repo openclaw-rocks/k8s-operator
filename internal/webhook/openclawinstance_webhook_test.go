@@ -1999,3 +1999,96 @@ func TestValidateUpdate_SuspendedWithHPA(t *testing.T) {
 		t.Errorf("error should mention mutual exclusivity, got: %s", err.Error())
 	}
 }
+
+func TestValidateSkillName_PackPrefix(t *testing.T) {
+	if err := validateSkillName("pack:acme/skills/example@v1.2.0"); err != nil {
+		t.Fatalf("expected no error for pack: reference, got: %v", err)
+	}
+}
+
+func TestValidateSkillName_PackPrefixEmpty(t *testing.T) {
+	err := validateSkillName("pack:")
+	if err == nil {
+		t.Fatal("expected error for bare pack: prefix")
+	}
+	if !strings.Contains(err.Error(), "requires an owner/repo/path") {
+		t.Fatalf("error should mention the expected reference format, got: %v", err)
+	}
+}
+
+func TestValidateCreate_PackSkillAccepted(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Skills = []string{"pack:acme/skills/example@main"}
+
+	_, err := v.ValidateCreate(context.Background(), instance)
+	if err != nil {
+		t.Fatalf("expected no error for pack: skill, got: %v", err)
+	}
+}
+
+func TestValidateCreate_AdditionalWorkspaceSkillsValid(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Workspace = &openclawv1alpha1.WorkspaceSpec{
+		AdditionalWorkspaces: []openclawv1alpha1.AdditionalWorkspace{
+			{
+				Name:   "work",
+				Skills: []string{"pack:acme/skills/example@v1", "npm:@acme/cli", "@acme/browser-use"},
+			},
+			{
+				// The same skill in a different workspace is allowed:
+				// uniqueness is enforced per workspace only (#568).
+				Name:   "research",
+				Skills: []string{"pack:acme/skills/example@v1"},
+			},
+		},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), instance)
+	if err != nil {
+		t.Fatalf("expected no error for valid workspace skills, got: %v", err)
+	}
+}
+
+func TestValidateCreate_AdditionalWorkspaceSkillsDuplicate(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Workspace = &openclawv1alpha1.WorkspaceSpec{
+		AdditionalWorkspaces: []openclawv1alpha1.AdditionalWorkspace{
+			{
+				Name:   "work",
+				Skills: []string{"@acme/browser-use", "@acme/browser-use"},
+			},
+		},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), instance)
+	if err == nil {
+		t.Fatal("expected error for duplicate skill within one workspace")
+	}
+	if !strings.Contains(err.Error(), "duplicated within the workspace") {
+		t.Errorf("expected per-workspace duplicate error, got: %v", err)
+	}
+}
+
+func TestValidateCreate_AdditionalWorkspaceSkillsInvalidName(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Workspace = &openclawv1alpha1.WorkspaceSpec{
+		AdditionalWorkspaces: []openclawv1alpha1.AdditionalWorkspace{
+			{
+				Name:   "work",
+				Skills: []string{"foo:bar"},
+			},
+		},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), instance)
+	if err == nil {
+		t.Fatal("expected error for invalid workspace skill name")
+	}
+	if !strings.Contains(err.Error(), "invalid character") {
+		t.Errorf("expected invalid character error, got: %v", err)
+	}
+}

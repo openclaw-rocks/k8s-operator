@@ -347,6 +347,20 @@ func validateWorkspaceSpec(ws *openclawv1alpha1.WorkspaceSpec) error {
 				return fmt.Errorf("additionalWorkspaces[%d] %q initialDirectories entry %q: %w", i, aw.Name, dir, err)
 			}
 		}
+
+		// Validate workspace-scoped skills. Uniqueness is enforced per
+		// workspace only: the same skill in two different workspaces is fine
+		// because installed paths are scoped by workspace (#568).
+		seenSkills := make(map[string]bool, len(aw.Skills))
+		for j, skill := range aw.Skills {
+			if err := validateSkillName(skill); err != nil {
+				return fmt.Errorf("additionalWorkspaces[%d] %q skills[%d] %q: %w", i, aw.Name, j, skill, err)
+			}
+			if seenSkills[skill] {
+				return fmt.Errorf("additionalWorkspaces[%d] %q skills[%d] %q is duplicated within the workspace", i, aw.Name, j, skill)
+			}
+			seenSkills[skill] = true
+		}
 	}
 
 	return nil
@@ -463,7 +477,8 @@ func validateResourceQuantities(instance *openclawv1alpha1.OpenClawInstance) err
 
 // validateSkillName checks a single skill identifier.
 // Entries may use the "npm:" prefix to install npm packages instead of ClawHub
-// skills. The prefix is stripped before character-set validation.
+// skills, or the "pack:" prefix to seed a GitHub-hosted skill pack. The prefix
+// is stripped before character-set validation.
 func validateSkillName(name string) error {
 	if name == "" {
 		return fmt.Errorf("skill name must not be empty")
@@ -476,6 +491,11 @@ func validateSkillName(name string) error {
 	if after, ok := strings.CutPrefix(name, "npm:"); ok {
 		if after == "" {
 			return fmt.Errorf("npm: prefix requires a package name")
+		}
+		check = after
+	} else if after, ok := strings.CutPrefix(name, resources.SkillPackPrefix); ok {
+		if after == "" {
+			return fmt.Errorf("pack: prefix requires an owner/repo/path[@ref] reference")
 		}
 		check = after
 	}

@@ -91,8 +91,8 @@ func BuildConfigMapFromBytes(instance *openclawv1alpha1.OpenClawInstance, baseCo
 	if enriched, err := enrichConfigWithControlUIOrigins(configBytes, instance); err == nil {
 		configBytes = enriched
 	}
-	if skillPacks != nil && len(skillPacks.SkillEntries) > 0 {
-		if enriched, err := enrichConfigWithSkillPacks(configBytes, skillPacks.SkillEntries); err == nil {
+	if entries := combinedSkillEntries(skillPacks); len(entries) > 0 {
+		if enriched, err := enrichConfigWithSkillPacks(configBytes, entries); err == nil {
 			configBytes = enriched
 		}
 	}

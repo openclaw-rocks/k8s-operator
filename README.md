@@ -76,7 +76,7 @@ Every request is validated against the instance's allowlist policy. Protected co
 | **Flexible** | Provider-agnostic config | Use any AI provider (Anthropic, OpenAI, or others) via environment variables and inline or external config |
 | **Config Modes** | Merge or overwrite | `overwrite` replaces config on restart; `merge` deep-merges with PVC config, preserving runtime changes. Config is restored on every container restart via init container. |
 | **Force Paths** | Operator-owned paths under merge | `config.forcePaths` lists dot-paths the init container rebuilds from the CR on every restart even under `mergeMode: merge` -- lets managed deployers keep operator-owned config (auth, allowed providers, sandbox image) immune to tenant edits while user-owned config persists |
-| **Skills** | Declarative install | Install ClawHub skills, npm packages, or GitHub-hosted skill packs via `spec.skills` - supports `npm:` and `pack:` prefixes |
+| **Skills** | Declarative install | Install ClawHub skills, npm packages, or GitHub-hosted skill packs via `spec.skills` - supports `npm:` and `pack:` prefixes. Additional workspaces can declare their own workspace-scoped skills via `additionalWorkspaces[].skills` |
 | **Plugins** | Declarative install | Install OpenClaw plugins via `spec.plugins` - resolved through the OpenClaw CLI ClawHub installer in a secure init container |
 | **Runtime Deps** | pnpm & Python/uv | Built-in init containers install pnpm (via corepack) or Python 3.12 + uv for MCP servers and skills |
 | **Auto-Update** | OCI registry polling | Opt-in version tracking: checks the registry for new semver releases, backs up first, rolls out, and auto-rolls back if the new version fails health checks |
@@ -576,6 +576,21 @@ The operator resolves packs via the GitHub Contents + Git Trees APIs (cached for
 
 **Updating pack contents.** By default (`spec.skillPackUpdatePolicy: Replace`), pack-seeded files converge to the declared pack revision on every pod start: changing a pinned `@tag`/`@commit` (or pushing to a tracked branch) overwrites the seeded files, and files that are no longer part of any declared pack are removed. The operator tracks what it seeded in a manifest at `/data/.skillpack-manifest` on the data volume, so user-created workspace files are never touched. Files at pack-declared paths are operator-managed -- local edits to them are reverted on restart. Set `spec.skillPackUpdatePolicy: CreateOnly` to opt out and keep the legacy seed-once behavior (files are never overwritten or removed after first seeding; updating a pinned revision then has no effect on already-seeded files).
 
+**Workspace-scoped skills (multi-agent).** Additional workspaces can declare their own skills with the same reference formats as `spec.skills`:
+
+```yaml
+spec:
+  workspace:
+    additionalWorkspaces:
+      - name: secondary
+        skills:
+          - "pack:example-org/openclaw-skills/skills/example-skill@example-skill-v1.2.0"
+          - "@acme/browser-use"          # ClawHub, installed into workspace-secondary/skills/
+          - "npm:@acme/cli-tool"         # npm binaries are global (~/.local/bin), shared by all agents
+```
+
+`pack:` entries resolve exactly like top-level packs (private repos via `GITHUB_TOKEN`, pinned tags/commits) but seed into `~/.openclaw/workspace-<name>/` and are tracked in a per-workspace manifest (`/data/.skillpack-manifest-ws-<name>`), so `skillPackUpdatePolicy` applies per workspace. ClawHub entries are installed with `clawhub --workdir` so the skill lands in that workspace's `skills/` directory instead of the shared `/app/skills`. The same skill may be listed in multiple workspaces (paths are scoped); duplicates within one workspace's list are rejected. Changing a workspace's skills triggers a pod rollout, and the rollout hash is keyed by workspace name, so moving a skill between workspaces rolls out too.
+
 ### Plugin installation
 
 Install plugins declaratively. The operator runs a dedicated init container that installs each plugin into `~/.openclaw/extensions/<name>/` before the agent starts, where `<name>` is the unscoped npm package basename (so `@openclaw/brave-plugin` becomes `~/.openclaw/extensions/brave-plugin/`):
@@ -707,7 +722,7 @@ spec:
               id: "123456789"        # bind to a specific channel
 ```
 
-Each additional workspace supports the same `configMapRef`, `initialFiles`, and `initialDirectories` as the default workspace. Operator-injected `ENVIRONMENT.md` is included; `BOOTSTRAP.md` is not (only the default agent runs onboarding). Max 10 additional workspaces.
+Each additional workspace supports the same `configMapRef`, `initialFiles`, and `initialDirectories` as the default workspace, plus a `skills` list for workspace-scoped skill installation (see [Skill packs](#skill-packs)). Operator-injected `ENVIRONMENT.md` is included; `BOOTSTRAP.md` is not (only the default agent runs onboarding). Max 10 additional workspaces.
 
 > **Seed-once behavior:** Workspace files (both default and additional) are only written on first boot when they don't already exist on the PVC. If an agent modifies its own SOUL.md or AGENT.md at runtime, those changes persist across pod restarts and are never overwritten by the ConfigMap content. To re-seed a file, delete it from the PVC first.
 

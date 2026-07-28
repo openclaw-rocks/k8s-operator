@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"sort"
 	"strings"
 )
 
@@ -53,6 +54,35 @@ type ResolvedSkillPacks struct {
 
 	// SkillEntries to inject into config.raw.skills.entries.
 	SkillEntries map[string]interface{}
+
+	// Workspaces maps additional workspace names to the skill packs resolved
+	// from spec.workspace.additionalWorkspaces[].skills pack: entries. Only
+	// populated on the top-level ResolvedSkillPacks; nested values never
+	// populate Workspaces themselves.
+	Workspaces map[string]*ResolvedSkillPacks
+}
+
+// WorkspacePacks returns the resolved skill packs for the named additional
+// workspace, or nil if none were resolved.
+func (sp *ResolvedSkillPacks) WorkspacePacks(name string) *ResolvedSkillPacks {
+	if sp == nil {
+		return nil
+	}
+	return sp.Workspaces[name]
+}
+
+// HasWorkspacePackFiles returns true if any additional workspace has resolved
+// skill pack files.
+func HasWorkspacePackFiles(sp *ResolvedSkillPacks) bool {
+	if sp == nil {
+		return false
+	}
+	for _, wsp := range sp.Workspaces {
+		if HasSkillPackFiles(wsp) {
+			return true
+		}
+	}
+	return false
 }
 
 // ExtractPackSkills returns pack names from the skills list (entries with "pack:" prefix).
@@ -88,4 +118,34 @@ func SkillPackCMKey(wsPath string) string {
 // HasSkillPackFiles returns true if the resolved skill packs contain any workspace files.
 func HasSkillPackFiles(sp *ResolvedSkillPacks) bool {
 	return sp != nil && len(sp.Files) > 0
+}
+
+// combinedSkillEntries merges the config.raw.skills.entries contributions from
+// the default-workspace packs and every additional workspace's packs.
+// config.raw.skills.entries is instance-global in OpenClaw, so workspace packs
+// contribute to the same map. Workspaces are merged in name order for
+// determinism; on key collisions the last merged workspace wins.
+func combinedSkillEntries(sp *ResolvedSkillPacks) map[string]interface{} {
+	if sp == nil {
+		return nil
+	}
+	merged := make(map[string]interface{}, len(sp.SkillEntries))
+	for k, v := range sp.SkillEntries {
+		merged[k] = v
+	}
+	names := make([]string, 0, len(sp.Workspaces))
+	for name := range sp.Workspaces {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		wsp := sp.Workspaces[name]
+		if wsp == nil {
+			continue
+		}
+		for k, v := range wsp.SkillEntries {
+			merged[k] = v
+		}
+	}
+	return merged
 }

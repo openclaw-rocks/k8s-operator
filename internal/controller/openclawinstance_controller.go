@@ -61,6 +61,13 @@ const (
 
 	// RequeueAfter is the default requeue interval
 	RequeueAfter = 5 * time.Minute
+
+	// ProvisioningRequeueAfter is the requeue interval used while waiting for
+	// the StatefulSet's pod to become ready. It is shorter than RequeueAfter
+	// so the Phase flips to Running promptly once the pod reports ready,
+	// rather than waiting up to 5 minutes even though the StatefulSet watch
+	// should already trigger a reconcile on status change.
+	ProvisioningRequeueAfter = 10 * time.Second
 )
 
 // requeueError is a sentinel error used by reconcileResources to signal
@@ -259,9 +266,25 @@ func (r *OpenClawInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{RequeueAfter: RequeueAfter}, nil
 	}
 
-	// Determine phase based on condition health
+	// Determine phase based on condition health. The StatefulSet's pod
+	// readiness takes precedence: downstream consumers (e.g. the hosted
+	// proxy) treat Phase==Running as "safe to route to the instance
+	// Service", so we must not report Running while the StatefulSet has
+	// zero ready replicas - that Service would have zero ready endpoints.
+	provisioningWait := false
+	stsReadyCondition := meta.FindStatusCondition(instance.Status.Conditions, openclawv1alpha1.ConditionTypeStatefulSetReady)
 	skillPacksCondition := meta.FindStatusCondition(instance.Status.Conditions, openclawv1alpha1.ConditionTypeSkillPacksReady)
-	if skillPacksCondition != nil && skillPacksCondition.Status == metav1.ConditionFalse {
+	switch {
+	case stsReadyCondition == nil || stsReadyCondition.Status != metav1.ConditionTrue:
+		instance.Status.Phase = openclawv1alpha1.PhaseProvisioning
+		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:    openclawv1alpha1.ConditionTypeReady,
+			Status:  metav1.ConditionFalse,
+			Reason:  "StatefulSetNotReady",
+			Message: "Waiting for the StatefulSet pod to become ready",
+		})
+		provisioningWait = true
+	case skillPacksCondition != nil && skillPacksCondition.Status == metav1.ConditionFalse:
 		instance.Status.Phase = openclawv1alpha1.PhaseDegraded
 		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 			Type:    openclawv1alpha1.ConditionTypeReady,
@@ -269,7 +292,7 @@ func (r *OpenClawInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			Reason:  "ReconcileSucceededDegraded",
 			Message: "Resources reconciled but skill packs unavailable - instance running without skill packs",
 		})
-	} else {
+	default:
 		instance.Status.Phase = openclawv1alpha1.PhaseRunning
 		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 			Type:    openclawv1alpha1.ConditionTypeReady,
@@ -303,8 +326,15 @@ func (r *OpenClawInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	updatePhaseMetric(instance.Name, instance.Namespace, instance.Status.Phase)
 	logger.Info("Reconciliation completed successfully")
 
-	// If auto-update needs a requeue, use its interval if shorter
+	// If auto-update needs a requeue, use its interval if shorter. While
+	// waiting for the StatefulSet's pod to become ready, requeue sooner than
+	// the default interval so Phase flips to Running promptly (the owned-
+	// StatefulSet watch should already trigger a reconcile on status change,
+	// but this is a cheap belt-and-suspenders backstop).
 	requeueAfter := RequeueAfter
+	if provisioningWait {
+		requeueAfter = ProvisioningRequeueAfter
+	}
 	if autoUpdateResult.Requeue {
 		return autoUpdateResult, nil
 	}
@@ -394,33 +424,76 @@ func (r *OpenClawInstanceReconciler) reconcileResources(ctx context.Context, ins
 	}
 
 	// 2d. Resolve skill packs from GitHub (non-blocking - failures degrade but don't block provisioning)
+	// Top-level spec.skills pack: entries resolve into the default workspace;
+	// additionalWorkspaces[].skills pack: entries resolve per workspace (#568).
 	var skillPacks *resources.ResolvedSkillPacks
 	packNames := resources.ExtractPackSkills(instance.Spec.Skills)
-	if len(packNames) > 0 && r.SkillPackResolver != nil {
-		var resolved *resources.ResolvedSkillPacks
-		resolved, err = r.SkillPackResolver.Resolve(ctx, packNames)
-		if err != nil {
-			logger.Error(err, "Failed to resolve skill packs, continuing without them", "packs", packNames)
+	type workspacePacks struct {
+		wsName string
+		packs  []string
+	}
+	var wsPackNames []workspacePacks
+	totalPacks := len(packNames)
+	if instance.Spec.Workspace != nil {
+		for i := range instance.Spec.Workspace.AdditionalWorkspaces {
+			aw := &instance.Spec.Workspace.AdditionalWorkspaces[i]
+			if packs := resources.ExtractPackSkills(aw.Skills); len(packs) > 0 {
+				wsPackNames = append(wsPackNames, workspacePacks{wsName: aw.Name, packs: packs})
+				totalPacks += len(packs)
+			}
+		}
+	}
+	if totalPacks > 0 && r.SkillPackResolver != nil {
+		var resolveErrs []string
+		resolvedCount := 0
+		if len(packNames) > 0 {
+			var resolved *resources.ResolvedSkillPacks
+			resolved, err = r.SkillPackResolver.Resolve(ctx, packNames)
+			if err != nil {
+				logger.Error(err, "Failed to resolve skill packs, continuing without them", "packs", packNames)
+				resolveErrs = append(resolveErrs, err.Error())
+			} else {
+				skillPacks = resolved
+				resolvedCount += len(packNames)
+			}
+		}
+		for _, wp := range wsPackNames {
+			var resolved *resources.ResolvedSkillPacks
+			resolved, err = r.SkillPackResolver.Resolve(ctx, wp.packs)
+			if err != nil {
+				logger.Error(err, "Failed to resolve workspace skill packs, continuing without them",
+					"workspace", wp.wsName, "packs", wp.packs)
+				resolveErrs = append(resolveErrs, fmt.Sprintf("workspace %q: %v", wp.wsName, err))
+				continue
+			}
+			if skillPacks == nil {
+				skillPacks = &resources.ResolvedSkillPacks{}
+			}
+			if skillPacks.Workspaces == nil {
+				skillPacks.Workspaces = make(map[string]*resources.ResolvedSkillPacks)
+			}
+			skillPacks.Workspaces[wp.wsName] = resolved
+			resolvedCount += len(wp.packs)
+		}
+		if len(resolveErrs) > 0 {
 			r.Recorder.Event(instance, corev1.EventTypeWarning, "SkillPackResolutionFailed",
-				fmt.Sprintf("Failed to resolve skill packs: %v. Instance will start without skill packs.", err))
+				fmt.Sprintf("Failed to resolve skill packs: %s. Instance will start without them.", strings.Join(resolveErrs, "; ")))
 			meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 				Type:               openclawv1alpha1.ConditionTypeSkillPacksReady,
 				Status:             metav1.ConditionFalse,
 				Reason:             "ResolutionFailed",
-				Message:            fmt.Sprintf("Failed to resolve skill packs: %v", err),
+				Message:            fmt.Sprintf("Failed to resolve skill packs: %s", strings.Join(resolveErrs, "; ")),
 				ObservedGeneration: instance.Generation,
 			})
-			// Continue with skillPacks = nil - instance will provision without skill packs
 		} else {
-			skillPacks = resolved
 			meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 				Type:               openclawv1alpha1.ConditionTypeSkillPacksReady,
 				Status:             metav1.ConditionTrue,
 				Reason:             "Resolved",
-				Message:            fmt.Sprintf("Successfully resolved %d skill pack(s)", len(packNames)),
+				Message:            fmt.Sprintf("Successfully resolved %d skill pack(s)", resolvedCount),
 				ObservedGeneration: instance.Generation,
 			})
-			logger.V(1).Info("Skill packs resolved", "packs", packNames)
+			logger.V(1).Info("Skill packs resolved", "packs", packNames, "workspacePacks", len(wsPackNames))
 		}
 	}
 

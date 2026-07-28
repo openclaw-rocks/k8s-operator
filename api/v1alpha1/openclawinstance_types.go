@@ -393,6 +393,18 @@ type AdditionalWorkspace struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	InitialDirectories []string `json:"initialDirectories,omitempty"`
+
+	// Skills is a list of skills to install scoped to this workspace, using the
+	// same reference formats as the top-level spec.skills: a ClawHub skill
+	// identifier (installed into workspace-<name>/skills/ via clawhub's
+	// --workdir), an npm package prefixed with "npm:" (npm binaries are
+	// installed globally and shared across workspaces), or a GitHub-hosted
+	// skill pack prefixed with "pack:" (resolved files are seeded into
+	// workspace-<name>/ and reconciled per spec.skillPackUpdatePolicy).
+	// +kubebuilder:validation:MaxItems=20
+	// +listType=set
+	// +optional
+	Skills []string `json:"skills,omitempty"`
 }
 
 // ConfigMapNameSelector references a ConfigMap by name.

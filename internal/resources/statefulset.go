@@ -70,7 +70,7 @@ func BuildStatefulSet(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenS
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      labels,
-					Annotations: buildPodAnnotations(instance, externalWorkspaceFiles, additionalExternalFiles),
+					Annotations: buildPodAnnotations(instance, skillPacks, externalWorkspaceFiles, additionalExternalFiles),
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName:            ServiceAccountName(instance),
@@ -133,12 +133,12 @@ func BuildStatefulSet(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenS
 }
 
 // buildPodAnnotations builds the pod annotations for the pod template
-func buildPodAnnotations(instance *openclawv1alpha1.OpenClawInstance, externalWorkspaceFiles map[string]string, additionalExternalFiles map[string]map[string]string) map[string]string {
+func buildPodAnnotations(instance *openclawv1alpha1.OpenClawInstance, skillPacks *ResolvedSkillPacks, externalWorkspaceFiles map[string]string, additionalExternalFiles map[string]map[string]string) map[string]string {
 	annotations := make(map[string]string, len(instance.Spec.PodAnnotations)+1)
 	for k, v := range instance.Spec.PodAnnotations {
 		annotations[k] = v
 	}
-	annotations["openclaw.rocks/config-hash"] = calculateConfigHash(instance, externalWorkspaceFiles, additionalExternalFiles)
+	annotations["openclaw.rocks/config-hash"] = calculateConfigHash(instance, skillPacks, externalWorkspaceFiles, additionalExternalFiles)
 	return annotations
 }
 
@@ -513,7 +513,7 @@ func buildMainEnv(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenSecre
 	// and npm-installed skill binaries (#335)
 	hasRuntimeDeps := instance.Spec.RuntimeDeps.Pnpm || instance.Spec.RuntimeDeps.Python
 	hasTailscale := instance.Spec.Tailscale.Enabled
-	hasNpmBins := hasNpmSkills(instance.Spec.Skills)
+	hasNpmBins := hasNpmSkills(instance.Spec.Skills) || hasWorkspaceNpmSkills(instance)
 	if hasRuntimeDeps || hasTailscale || hasNpmBins {
 		basePath := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 		var prefixes []string
@@ -924,6 +924,29 @@ func BuildInitScript(instance *openclawv1alpha1.OpenClawInstance, externalWorksp
 						shellQuote(cmKey),
 						shellQuote(wsDir), shellQuote(wsPath)))
 			}
+
+			// Workspace-scoped skill pack files (from additionalWorkspaces[].skills
+			// pack: entries). Mirrors the default workspace: directories first,
+			// then seed files per the instance-level skillPackUpdatePolicy (#568).
+			wsPacks := skillPacks.WorkspacePacks(aw.Name)
+			if wsPacks != nil {
+				for _, dir := range wsPacks.Directories {
+					lines = append(lines, fmt.Sprintf("mkdir -p /data/%s/%s", shellQuote(wsDir), shellQuote(dir)))
+				}
+			}
+			if instance.Spec.SkillPackUpdatePolicy == SkillPackUpdatePolicyCreateOnly {
+				if HasSkillPackFiles(wsPacks) {
+					for _, cmKey := range sortedPackKeys(wsPacks) {
+						wsPath := wsPacks.PathMapping[cmKey]
+						lines = append(lines, fmt.Sprintf("[ -f /data/%s/%s ] || cp /workspace-init/%s /data/%s/%s",
+							shellQuote(wsDir), shellQuote(wsPath),
+							shellQuote(AdditionalWorkspaceCMKey(aw.Name, cmKey)),
+							shellQuote(wsDir), shellQuote(wsPath)))
+					}
+				}
+			} else {
+				lines = append(lines, buildWorkspaceSkillPackSyncLines(wsPacks, aw.Name)...)
+			}
 		}
 	}
 
@@ -945,25 +968,42 @@ func sortedPackKeys(skillPacks *ResolvedSkillPacks) []string {
 	return keys
 }
 
-// skillPackCleanupLoop removes previously seeded pack files that are not in
-// the desired staging manifest, pruning directories that become empty. Entries
-// that are absolute or contain ".." are skipped so a corrupted manifest can
-// never delete anything outside /data/workspace. Callers must guard it with a
-// check that /data/.skillpack-manifest exists.
-const skillPackCleanupLoop = `while IFS= read -r f; do
+// skillPackCleanupLoop renders the loop that removes previously seeded pack
+// files that are not in the desired staging manifest, pruning directories that
+// become empty. Entries that are absolute or contain ".." are skipped so a
+// corrupted manifest can never delete anything outside the workspace root.
+// Callers must guard it with a check that the manifest exists.
+func skillPackCleanupLoop(wsRoot, manifest string) string {
+	return `while IFS= read -r f; do
 [ -n "$f" ] || continue
 case "$f" in /*|*..*) continue ;; esac
-if ! grep -Fxq -- "$f" /data/.skillpack-manifest.new; then
-rm -f "/data/workspace/$f"
+if ! grep -Fxq -- "$f" ` + manifest + `.new; then
+rm -f "` + wsRoot + `/$f"
 d=$(dirname -- "$f")
 while [ "$d" != "." ] && [ "$d" != "/" ]; do
-rmdir "/data/workspace/$d" 2>/dev/null || break
+rmdir "` + wsRoot + `/$d" 2>/dev/null || break
 d=$(dirname -- "$d")
 done
 fi
-done < /data/.skillpack-manifest`
+done < ` + manifest
+}
 
-// buildSkillPackSyncLines emits the Replace-mode skill pack sync (#564):
+// buildSkillPackSyncLines emits the Replace-mode skill pack sync for the
+// default workspace (#564). See buildSkillPackSyncLinesAt.
+func buildSkillPackSyncLines(skillPacks *ResolvedSkillPacks) []string {
+	return buildSkillPackSyncLinesAt(skillPacks, "/data/workspace", "/data/.skillpack-manifest",
+		func(cmKey string) string { return cmKey })
+}
+
+// buildWorkspaceSkillPackSyncLines emits the Replace-mode skill pack sync for
+// an additional workspace. Each workspace tracks its seeded file set in its
+// own manifest so removal/update semantics are scoped per workspace (#568).
+func buildWorkspaceSkillPackSyncLines(wsPacks *ResolvedSkillPacks, wsName string) []string {
+	return buildSkillPackSyncLinesAt(wsPacks, "/data/workspace-"+wsName, "/data/.skillpack-manifest-ws-"+wsName,
+		func(cmKey string) string { return AdditionalWorkspaceCMKey(wsName, cmKey) })
+}
+
+// buildSkillPackSyncLinesAt emits the Replace-mode skill pack sync (#564):
 //  1. Write the desired set of pack-seeded workspace paths to a staging
 //     manifest on the data volume (the init container rootfs is read-only and
 //     /tmp is not mounted in overwrite mode, so /data is the only writable spot).
@@ -972,9 +1012,12 @@ done < /data/.skillpack-manifest`
 //     pack revision.
 //  4. Promote the staging manifest.
 //
+// srcKey maps a pack's ConfigMap-safe key to the key it is stored under in the
+// workspace ConfigMap (additional workspaces namespace their keys).
+//
 // With no pack files, the sync only runs cleanup when a manifest from a
 // previous revision exists, so instances that never used packs get a no-op.
-func buildSkillPackSyncLines(skillPacks *ResolvedSkillPacks) []string {
+func buildSkillPackSyncLinesAt(skillPacks *ResolvedSkillPacks, wsRoot, manifest string, srcKey func(string) string) []string {
 	var lines []string
 
 	if !HasSkillPackFiles(skillPacks) {
@@ -982,10 +1025,10 @@ func buildSkillPackSyncLines(skillPacks *ResolvedSkillPacks) []string {
 		// previous revision seeded, then drop the manifest. No-op unless a
 		// manifest from a previous revision exists.
 		lines = append(lines,
-			"if [ -f /data/.skillpack-manifest ]; then",
-			": > /data/.skillpack-manifest.new",
-			skillPackCleanupLoop,
-			"rm -f /data/.skillpack-manifest.new /data/.skillpack-manifest",
+			fmt.Sprintf("if [ -f %s ]; then", manifest),
+			fmt.Sprintf(": > %s.new", manifest),
+			skillPackCleanupLoop(wsRoot, manifest),
+			fmt.Sprintf("rm -f %s.new %s", manifest, manifest),
 			"fi")
 		return lines
 	}
@@ -998,23 +1041,23 @@ func buildSkillPackSyncLines(skillPacks *ResolvedSkillPacks) []string {
 		quoted = append(quoted, shellQuote(skillPacks.PathMapping[cmKey]))
 	}
 	lines = append(lines,
-		fmt.Sprintf("printf '%%s\\n' %s > /data/.skillpack-manifest.new", strings.Join(quoted, " ")),
-		"if [ -f /data/.skillpack-manifest ]; then",
-		skillPackCleanupLoop,
+		fmt.Sprintf("printf '%%s\\n' %s > %s.new", strings.Join(quoted, " "), manifest),
+		fmt.Sprintf("if [ -f %s ]; then", manifest),
+		skillPackCleanupLoop(wsRoot, manifest),
 		"fi")
 
 	// Unconditional copy so file contents follow the declared revision.
 	for _, cmKey := range mappedKeys {
 		wsPath := skillPacks.PathMapping[cmKey]
 		if dir := path.Dir(wsPath); dir != "." && dir != "/" {
-			lines = append(lines, fmt.Sprintf("mkdir -p /data/workspace/%s", shellQuote(dir)))
+			lines = append(lines, fmt.Sprintf("mkdir -p %s/%s", wsRoot, shellQuote(dir)))
 		}
-		lines = append(lines, fmt.Sprintf("cp /workspace-init/%s /data/workspace/%s",
-			shellQuote(cmKey), shellQuote(wsPath)))
+		lines = append(lines, fmt.Sprintf("cp /workspace-init/%s %s/%s",
+			shellQuote(srcKey(cmKey)), wsRoot, shellQuote(wsPath)))
 	}
 
 	// Promote the manifest only after the seed completed.
-	lines = append(lines, "mv /data/.skillpack-manifest.new /data/.skillpack-manifest")
+	lines = append(lines, fmt.Sprintf("mv %s.new %s", manifest, manifest))
 	return lines
 }
 
@@ -1028,10 +1071,12 @@ rm -rf /app/skills && ln -s /home/openclaw/.openclaw/skills /app/skills`
 
 // skillInstallWrapper is a shell function that wraps `clawhub install` to
 // tolerate "Already installed" errors, making the init container idempotent
-// when persistent storage is enabled (#258).
+// when persistent storage is enabled (#258). An optional second argument is
+// passed to clawhub as --workdir so skills can be installed into an additional
+// workspace's skills/ directory instead of the global one (#568).
 const skillInstallWrapper = `_install_skill() {
   local output
-  if output=$(npx -y clawhub install "$1" 2>&1); then
+  if output=$(npx -y clawhub ${2:+--workdir "$2"} install "$1" 2>&1); then
     echo "$output"
   elif echo "$output" | grep -q 'Already installed'; then
     echo "Skill $1 already installed, skipping"
@@ -1099,27 +1144,100 @@ func hasNpmSkills(skills []string) bool {
 	return false
 }
 
+// hasWorkspaceNpmSkills returns true if any additional workspace declares an
+// npm-prefixed skill.
+func hasWorkspaceNpmSkills(instance *openclawv1alpha1.OpenClawInstance) bool {
+	if instance.Spec.Workspace == nil {
+		return false
+	}
+	for i := range instance.Spec.Workspace.AdditionalWorkspaces {
+		if hasNpmSkills(instance.Spec.Workspace.AdditionalWorkspaces[i].Skills) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasWorkspaceSkills returns true if any additional workspace declares skills.
+func hasWorkspaceSkills(instance *openclawv1alpha1.OpenClawInstance) bool {
+	if instance.Spec.Workspace == nil {
+		return false
+	}
+	for i := range instance.Spec.Workspace.AdditionalWorkspaces {
+		if len(instance.Spec.Workspace.AdditionalWorkspaces[i].Skills) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // BuildSkillsScript generates the shell script for the skills init container.
 // Each entry produces either a `clawhub install` (default) or `npm install`
 // (when prefixed with "npm:") command. Entries prefixed with "pack:" are
 // handled by workspace seeding and are excluded here.
+//
+// Additional-workspace entries (spec.workspace.additionalWorkspaces[].skills)
+// are emitted after the top-level ones, grouped per workspace in name order.
+// ClawHub installs for a workspace pass --workdir so the skill lands in
+// workspace-<name>/skills/; npm binaries are global by nature and install the
+// same way as top-level entries (#568).
+//
 // Entries are sorted for determinism. Returns "" if no installable skills are defined.
 func BuildSkillsScript(instance *openclawv1alpha1.OpenClawInstance) string {
 	// Filter out pack: entries — those are handled by workspace seeding, not npm/clawhub
 	skills := FilterNonPackSkills(instance.Spec.Skills)
-	if len(skills) == 0 {
-		return ""
+	sort.Strings(skills)
+
+	type workspaceSkills struct {
+		name    string
+		entries []string
+	}
+	var wsInstalls []workspaceSkills
+	needWrapper := hasClawHubSkills(skills)
+	if instance.Spec.Workspace != nil {
+		for i := range instance.Spec.Workspace.AdditionalWorkspaces {
+			aw := &instance.Spec.Workspace.AdditionalWorkspaces[i]
+			entries := FilterNonPackSkills(aw.Skills)
+			if len(entries) == 0 {
+				continue
+			}
+			sort.Strings(entries)
+			wsInstalls = append(wsInstalls, workspaceSkills{name: aw.Name, entries: entries})
+			needWrapper = needWrapper || hasClawHubSkills(entries)
+		}
+		sort.Slice(wsInstalls, func(i, j int) bool { return wsInstalls[i].name < wsInstalls[j].name })
 	}
 
-	sort.Strings(skills)
+	if len(skills) == 0 && len(wsInstalls) == 0 {
+		return ""
+	}
 
 	var lines []string
 	lines = append(lines, "set -e")
 	if hasClawHubSkills(skills) {
-		lines = append(lines, clawHubSkillsSetup, skillInstallWrapper)
+		lines = append(lines, clawHubSkillsSetup)
+	}
+	if needWrapper {
+		lines = append(lines, skillInstallWrapper)
 	}
 	for _, skill := range skills {
 		lines = append(lines, parseSkillEntry(skill))
+	}
+	for _, wi := range wsInstalls {
+		wsDir := "/home/openclaw/.openclaw/workspace-" + wi.name
+		mkdirEmitted := false
+		for _, skill := range wi.entries {
+			if pkg, ok := strings.CutPrefix(skill, "npm:"); ok {
+				lines = append(lines, fmt.Sprintf("npm install -g %s", shellQuote(pkg)))
+				continue
+			}
+			if !mkdirEmitted {
+				lines = append(lines, fmt.Sprintf("mkdir -p %s", shellQuote(wsDir)))
+				mkdirEmitted = true
+			}
+			lines = append(lines, fmt.Sprintf("_install_skill %s %s",
+				shellQuote(normalizeClawHubSlug(skill)), shellQuote(wsDir)))
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -2317,7 +2435,7 @@ func buildVolumes(instance *openclawv1alpha1.OpenClawInstance, skillPacks *Resol
 	}
 
 	// Skills-tmp volume for skills init container
-	if len(instance.Spec.Skills) > 0 {
+	if len(instance.Spec.Skills) > 0 || hasWorkspaceSkills(instance) {
 		volumes = append(volumes, corev1.Volume{
 			Name: "skills-tmp",
 			VolumeSource: corev1.VolumeSource{
@@ -2806,16 +2924,56 @@ func getPullPolicy(instance *openclawv1alpha1.OpenClawInstance) corev1.PullPolic
 
 // calculateConfigHash computes a hash of the config, skills, plugins, and
 // runtime settings for rollout detection. Changes to any of these trigger a
-// pod restart. Workspace files are intentionally excluded because they are
-// delivered via a projected ConfigMap volume that the kubelet updates in-place
-// without requiring a pod restart.
-func calculateConfigHash(instance *openclawv1alpha1.OpenClawInstance, _ map[string]string, _ map[string]map[string]string) string {
+// pod restart.
+//
+// The hash covers the RENDERED ConfigMap data (the same openclaw.json/nginx/
+// tailscale/otel bytes produced by BuildConfigMap), not just selected spec
+// fields. This way every spec section the enrichment pipeline reads (e.g.
+// spec.gateway.controlUiOrigins, spec.networking.ingress hosts/TLS) rolls the
+// pod when it changes the config the pod actually consumes. Hashing only
+// hand-picked spec fields previously let the ConfigMap re-render while the
+// StatefulSet never rolled, so pods kept serving the stale config.
+//
+// External workspace files (spec.workspace.configMapRef and per-workspace
+// configMapRefs) are hashed too: the workspace-init container copies them into
+// the workspace at pod start, so content changes only take effect after a
+// restart. Inline spec.workspace.initialFiles remain excluded (unchanged
+// behavior; they are delivered via a projected ConfigMap volume).
+//
+// The gateway token is deliberately NOT part of the hash: BuildConfigMap is
+// invoked with an empty token here, so token rotation does not roll the pod
+// (same behavior as before).
+func calculateConfigHash(instance *openclawv1alpha1.OpenClawInstance, skillPacks *ResolvedSkillPacks, externalWorkspaceFiles map[string]string, additionalExternalFiles map[string]map[string]string) string {
 	h := sha256.New()
 	configData, _ := json.Marshal(instance.Spec.Config)
 	h.Write(configData)
+	// Rendered ConfigMap data: openclaw.json after the full enrichment
+	// pipeline plus the nginx/tailscale-serve/otel-collector companion keys.
+	// json.Marshal sorts map keys, so this is deterministic across reconciles.
+	renderedData, _ := json.Marshal(BuildConfigMap(instance, "", skillPacks).Data)
+	h.Write(renderedData)
+	if len(externalWorkspaceFiles) > 0 {
+		extData, _ := json.Marshal(externalWorkspaceFiles)
+		h.Write(extData)
+	}
+	if len(additionalExternalFiles) > 0 {
+		addExtData, _ := json.Marshal(additionalExternalFiles)
+		h.Write(addExtData)
+	}
 	if len(instance.Spec.Skills) > 0 {
 		skillsData, _ := json.Marshal(instance.Spec.Skills)
 		h.Write(skillsData)
+	}
+	// Workspace-scoped skills, keyed by workspace name so moving an identical
+	// skill between workspaces still changes the hash and triggers a rollout (#568).
+	if instance.Spec.Workspace != nil {
+		for i := range instance.Spec.Workspace.AdditionalWorkspaces {
+			aw := &instance.Spec.Workspace.AdditionalWorkspaces[i]
+			if len(aw.Skills) > 0 {
+				wsSkillsData, _ := json.Marshal(map[string][]string{aw.Name: aw.Skills})
+				h.Write(wsSkillsData)
+			}
+		}
 	}
 	if len(instance.Spec.Plugins) > 0 {
 		pluginsData, _ := json.Marshal(instance.Spec.Plugins)

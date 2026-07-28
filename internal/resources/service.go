@@ -53,9 +53,15 @@ func BuildService(instance *openclawv1alpha1.OpenClawInstance) *corev1.Service {
 }
 
 // buildServicePorts returns custom ports if specified, otherwise default ports.
+//
+// The operator-managed metrics port is appended in both branches. It used to be
+// added only to the default ports, so an instance that set custom Service ports
+// and enabled observability.metrics.serviceMonitor got a ServiceMonitor whose
+// `port: metrics` endpoint had no matching Service port, and Prometheus silently
+// scraped nothing.
 func buildServicePorts(instance *openclawv1alpha1.OpenClawInstance) []corev1.ServicePort {
 	if len(instance.Spec.Networking.Service.Ports) > 0 {
-		ports := make([]corev1.ServicePort, 0, len(instance.Spec.Networking.Service.Ports))
+		ports := make([]corev1.ServicePort, 0, len(instance.Spec.Networking.Service.Ports)+1)
 		for _, p := range instance.Spec.Networking.Service.Ports {
 			protocol := p.Protocol
 			if protocol == "" {
@@ -72,7 +78,7 @@ func buildServicePorts(instance *openclawv1alpha1.OpenClawInstance) []corev1.Ser
 				Protocol:   protocol,
 			})
 		}
-		return ports
+		return appendMetricsPort(instance, ports)
 	}
 
 	// When the gateway proxy is enabled, route through the proxy ports.
@@ -117,17 +123,35 @@ func buildServicePorts(instance *openclawv1alpha1.OpenClawInstance) []corev1.Ser
 		})
 	}
 
-	if IsMetricsEnabled(instance) {
-		metricsPort := MetricsPort(instance)
-		ports = append(ports, corev1.ServicePort{
-			Name:       "metrics",
-			Port:       metricsPort,
-			TargetPort: intstr.FromInt32(metricsPort),
-			Protocol:   corev1.ProtocolTCP,
-		})
+	return appendMetricsPort(instance, ports)
+}
+
+// appendMetricsPort adds the operator-managed "metrics" port that
+// BuildServiceMonitor's endpoint resolves against.
+//
+// A user-supplied port takes precedence: if the instance already declares a port
+// named "metrics", or one occupying the managed metrics port number, the managed
+// port is skipped. Appending it anyway would produce a Service with duplicate
+// port names or numbers, which the API server rejects outright — turning a
+// silently-unscraped Service into a Service that will not admit at all.
+func appendMetricsPort(instance *openclawv1alpha1.OpenClawInstance, ports []corev1.ServicePort) []corev1.ServicePort {
+	if !IsMetricsEnabled(instance) {
+		return ports
 	}
 
-	return ports
+	metricsPort := MetricsPort(instance)
+	for _, p := range ports {
+		if p.Name == MetricsPortName || p.Port == metricsPort {
+			return ports
+		}
+	}
+
+	return append(ports, corev1.ServicePort{
+		Name:       MetricsPortName,
+		Port:       metricsPort,
+		TargetPort: intstr.FromInt32(metricsPort),
+		Protocol:   corev1.ProtocolTCP,
+	})
 }
 
 // BuildChromiumCDPService creates a headless Service for the Chromium CDP

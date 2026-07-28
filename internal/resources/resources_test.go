@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -1512,10 +1513,13 @@ func TestBuildService_CustomPorts(t *testing.T) {
 
 	svc := BuildService(instance)
 
-	if len(svc.Spec.Ports) != 1 {
-		t.Fatalf("expected 1 port, got %d", len(svc.Spec.Ports))
+	// Custom ports plus the operator-managed metrics port, which is enabled by
+	// default and must be present for the ServiceMonitor endpoint to resolve.
+	if len(svc.Spec.Ports) != 2 {
+		t.Fatalf("expected 2 ports, got %d", len(svc.Spec.Ports))
 	}
 	assertServicePort(t, svc.Spec.Ports, "http", 3978)
+	assertServicePort(t, svc.Spec.Ports, "metrics", DefaultMetricsPort)
 }
 
 func TestBuildService_CustomPortsWithTargetPort(t *testing.T) {
@@ -1530,8 +1534,8 @@ func TestBuildService_CustomPortsWithTargetPort(t *testing.T) {
 
 	svc := BuildService(instance)
 
-	if len(svc.Spec.Ports) != 1 {
-		t.Fatalf("expected 1 port, got %d", len(svc.Spec.Ports))
+	if len(svc.Spec.Ports) != 2 {
+		t.Fatalf("expected 2 ports (custom + managed metrics), got %d", len(svc.Spec.Ports))
 	}
 	if svc.Spec.Ports[0].Port != 80 {
 		t.Errorf("port = %d, want 80", svc.Spec.Ports[0].Port)
@@ -1539,6 +1543,7 @@ func TestBuildService_CustomPortsWithTargetPort(t *testing.T) {
 	if svc.Spec.Ports[0].TargetPort.IntValue() != 3978 {
 		t.Errorf("targetPort = %d, want 3978", svc.Spec.Ports[0].TargetPort.IntValue())
 	}
+	assertServicePort(t, svc.Spec.Ports, "metrics", DefaultMetricsPort)
 }
 
 func TestBuildService_CustomPortsMultiple(t *testing.T) {
@@ -1558,11 +1563,12 @@ func TestBuildService_CustomPortsMultiple(t *testing.T) {
 
 	svc := BuildService(instance)
 
-	if len(svc.Spec.Ports) != 2 {
-		t.Fatalf("expected 2 ports, got %d", len(svc.Spec.Ports))
+	if len(svc.Spec.Ports) != 3 {
+		t.Fatalf("expected 3 ports (2 custom + managed metrics), got %d", len(svc.Spec.Ports))
 	}
 	assertServicePort(t, svc.Spec.Ports, "http", 3978)
 	assertServicePort(t, svc.Spec.Ports, "grpc", 50051)
+	assertServicePort(t, svc.Spec.Ports, "metrics", DefaultMetricsPort)
 }
 
 func TestBuildService_CustomPortsOverrideDefaults(t *testing.T) {
@@ -1577,10 +1583,132 @@ func TestBuildService_CustomPortsOverrideDefaults(t *testing.T) {
 
 	svc := BuildService(instance)
 
-	if len(svc.Spec.Ports) != 1 {
+	// Custom ports replace the workload defaults (gateway/canvas/chromium), but
+	// not the operator-managed metrics port, which the ServiceMonitor targets.
+	if len(svc.Spec.Ports) != 2 {
 		t.Fatalf("custom ports should replace defaults including chromium; got %d ports", len(svc.Spec.Ports))
 	}
 	assertServicePort(t, svc.Spec.Ports, "http", 8080)
+	assertServicePort(t, svc.Spec.Ports, "metrics", DefaultMetricsPort)
+	for _, p := range svc.Spec.Ports {
+		if p.Name == "chromium" || p.Name == "gateway" || p.Name == "canvas" {
+			t.Errorf("default port %q should have been replaced by custom ports", p.Name)
+		}
+	}
+}
+
+// Regression test for #577: custom Service ports combined with an
+// operator-managed ServiceMonitor produced a Service with no "metrics" port, so
+// the ServiceMonitor endpoint had nothing to resolve and Prometheus silently
+// scraped nothing.
+func TestBuildService_CustomPortsIncludesMetricsForServiceMonitor(t *testing.T) {
+	instance := newTestInstance("svc-custom-metrics")
+	instance.Spec.Networking.Service.Ports = []openclawv1alpha1.ServicePortSpec{
+		{Name: "http", Port: 3978},
+	}
+	enabled := true
+	instance.Spec.Observability.Metrics.Enabled = &enabled
+	instance.Spec.Observability.Metrics.ServiceMonitor = &openclawv1alpha1.ServiceMonitorSpec{
+		Enabled: &enabled,
+	}
+
+	svc := BuildService(instance)
+	sm := BuildServiceMonitor(instance)
+
+	endpoints, found, err := unstructured.NestedSlice(sm.Object, "spec", "endpoints")
+	if err != nil || !found {
+		t.Fatalf("could not read ServiceMonitor endpoints: found=%v err=%v", found, err)
+	}
+	if len(endpoints) == 0 {
+		t.Fatal("ServiceMonitor has no endpoints")
+	}
+
+	// Every ServiceMonitor endpoint port must exist as a named Service port,
+	// otherwise Prometheus has no target to resolve and scrapes nothing.
+	for _, raw := range endpoints {
+		ep, ok := raw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("unexpected endpoint shape %T", raw)
+		}
+		portName, _ := ep["port"].(string)
+		matched := false
+		for _, p := range svc.Spec.Ports {
+			if p.Name == portName {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("ServiceMonitor endpoint port %q has no matching Service port; got %v", portName, svc.Spec.Ports)
+		}
+	}
+}
+
+func TestBuildService_CustomPortsMetricsDisabled(t *testing.T) {
+	instance := newTestInstance("svc-custom-no-metrics")
+	instance.Spec.Networking.Service.Ports = []openclawv1alpha1.ServicePortSpec{
+		{Name: "http", Port: 3978},
+	}
+	disabled := false
+	instance.Spec.Observability.Metrics.Enabled = &disabled
+
+	svc := BuildService(instance)
+
+	if len(svc.Spec.Ports) != 1 {
+		t.Fatalf("expected only the custom port when metrics are disabled, got %d", len(svc.Spec.Ports))
+	}
+	assertServicePort(t, svc.Spec.Ports, "http", 3978)
+}
+
+// A user-declared "metrics" port must win, otherwise the Service would carry a
+// duplicate port name and the API server would reject it outright.
+func TestBuildService_CustomPortsUserSuppliedMetricsNotDuplicated(t *testing.T) {
+	instance := newTestInstance("svc-custom-own-metrics")
+	instance.Spec.Networking.Service.Ports = []openclawv1alpha1.ServicePortSpec{
+		{Name: "http", Port: 3978},
+		{Name: "metrics", Port: 9999},
+	}
+
+	svc := BuildService(instance)
+
+	if len(svc.Spec.Ports) != 2 {
+		t.Fatalf("expected 2 ports, got %d", len(svc.Spec.Ports))
+	}
+	assertServicePort(t, svc.Spec.Ports, "metrics", 9999)
+	assertNoDuplicatePorts(t, svc.Spec.Ports)
+}
+
+// Same guard by port number rather than name: duplicate port numbers are also
+// rejected by the API server.
+func TestBuildService_CustomPortsCollidingMetricsPortNumber(t *testing.T) {
+	instance := newTestInstance("svc-custom-collide")
+	instance.Spec.Networking.Service.Ports = []openclawv1alpha1.ServicePortSpec{
+		{Name: "telemetry", Port: DefaultMetricsPort},
+	}
+
+	svc := BuildService(instance)
+
+	if len(svc.Spec.Ports) != 1 {
+		t.Fatalf("expected 1 port, got %d", len(svc.Spec.Ports))
+	}
+	assertServicePort(t, svc.Spec.Ports, "telemetry", DefaultMetricsPort)
+	assertNoDuplicatePorts(t, svc.Spec.Ports)
+}
+
+func assertNoDuplicatePorts(t *testing.T, ports []corev1.ServicePort) {
+	t.Helper()
+	names := map[string]bool{}
+	numbers := map[int32]bool{}
+	for _, p := range ports {
+		if names[p.Name] {
+			t.Errorf("duplicate service port name %q", p.Name)
+		}
+		if numbers[p.Port] {
+			t.Errorf("duplicate service port number %d", p.Port)
+		}
+		names[p.Name] = true
+		numbers[p.Port] = true
+	}
 }
 
 func TestBuildService_CustomPortsDefaultProtocol(t *testing.T) {

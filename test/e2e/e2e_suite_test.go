@@ -1924,7 +1924,8 @@ var _ = Describe("OpenClawInstance Controller", func() {
 				}
 			}
 			Expect(wtContainer).NotTo(BeNil(), "web-terminal sidecar container should exist")
-			Expect(wtContainer.Image).To(Equal("tsl0922/ttyd:latest"))
+			// Fully qualified so CRI-O short-name enforcement accepts it.
+			Expect(wtContainer.Image).To(Equal(resources.DefaultWebTerminalImage + ":" + resources.DefaultImageTag))
 
 			// Verify web-terminal-tmp volume exists
 			var wtVol *corev1.Volume

@@ -166,7 +166,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `repository` _string_ | Repository is the container image repository | chromedp/headless-shell | Optional: \{\} <br /> |
+| `repository` _string_ | Repository is the container image repository | docker.io/chromedp/headless-shell | Optional: \{\} <br /> |
 | `tag` _string_ | Tag is the container image tag | stable | Optional: \{\} <br /> |
 | `digest` _string_ | Digest is the container image digest for supply chain security |  | Optional: \{\} <br /> |
 
@@ -617,7 +617,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `repository` _string_ | Repository is the container image repository | ollama/ollama | Optional: \{\} <br /> |
+| `repository` _string_ | Repository is the container image repository | docker.io/ollama/ollama | Optional: \{\} <br /> |
 | `tag` _string_ | Tag is the container image tag | latest | Optional: \{\} <br /> |
 | `digest` _string_ | Digest is the container image digest for supply chain security |  | Optional: \{\} <br /> |
 

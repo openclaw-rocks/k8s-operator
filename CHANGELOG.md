@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.2](https://github.com/paperclipinc/openclaw-operator/compare/v0.38.1...v0.38.2) (2026-07-28)
+
+
+### Bug Fixes
+
+* **service:** expose the managed metrics port alongside custom Service ports ([#583](https://github.com/paperclipinc/openclaw-operator/issues/583)) ([6e22165](https://github.com/paperclipinc/openclaw-operator/commit/6e221655e6e4e97137781d608d8208c8f775d8d6))
+* **statefulset:** hash rendered ConfigMap data so config changes roll the pod ([#579](https://github.com/paperclipinc/openclaw-operator/issues/579)) ([5082152](https://github.com/paperclipinc/openclaw-operator/commit/508215234c53d8108a302e990c4268fee12dd20c))
+
 ## [0.38.1](https://github.com/paperclipinc/openclaw-operator/compare/v0.38.0...v0.38.1) (2026-07-20)
 
 

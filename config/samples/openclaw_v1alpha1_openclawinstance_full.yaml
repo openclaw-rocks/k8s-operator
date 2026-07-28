@@ -114,7 +114,7 @@ spec:
   chromium:
     enabled: true
     image:
-      repository: chromedp/headless-shell
+      repository: docker.io/chromedp/headless-shell
       tag: "stable"
       # Recommended: pin to a specific digest
       # digest: "sha256:abc123..."

@@ -261,8 +261,8 @@ jobs:
 
       - name: Pre-pull test images
         run: |
-          docker pull chromedp/headless-shell:stable
-          kind load docker-image chromedp/headless-shell:stable --name e2e-test
+          docker pull docker.io/chromedp/headless-shell:stable
+          kind load docker-image docker.io/chromedp/headless-shell:stable --name e2e-test
           docker pull curlimages/curl
           kind load docker-image curlimages/curl --name e2e-test
 

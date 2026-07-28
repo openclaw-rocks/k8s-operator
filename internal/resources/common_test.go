@@ -62,6 +62,12 @@ func TestApplyRegistryOverride(t *testing.T) {
 			expected: "ghcr.io/openclaw/openclaw:1.0.0",
 		},
 		{
+			name:     "empty registry preserves Docker Hub library prefix",
+			image:    "docker.io/library/busybox:1.37",
+			registry: "",
+			expected: "docker.io/library/busybox:1.37",
+		},
+		{
 			name:     "registry with repo path",
 			image:    "ghcr.io/openclaw/openclaw:latest",
 			registry: "my-registry.example.com",
@@ -74,16 +80,40 @@ func TestApplyRegistryOverride(t *testing.T) {
 			expected: "my-registry:5000/openclaw/openclaw:v1.2.3",
 		},
 		{
-			name:     "docker hub official image with tag",
+			name:     "docker hub official image with library prefix",
+			image:    "docker.io/library/nginx:1.27-alpine",
+			registry: "my-registry.example.com",
+			expected: "my-registry.example.com/nginx:1.27-alpine",
+		},
+		{
+			name:     "docker hub official image with library prefix and digest",
+			image:    "docker.io/library/busybox@sha256:abc123",
+			registry: "my-registry.example.com",
+			expected: "my-registry.example.com/busybox@sha256:abc123",
+		},
+		{
+			name:     "docker hub official image with short name",
 			image:    "nginx:1.27-alpine",
 			registry: "my-registry.example.com",
 			expected: "my-registry.example.com/nginx:1.27-alpine",
 		},
 		{
-			name:     "docker hub image - two path components",
+			name:     "docker hub image - fully qualified two path components",
+			image:    "docker.io/ollama/ollama:latest",
+			registry: "my-registry.example.com",
+			expected: "my-registry.example.com/ollama/ollama:latest",
+		},
+		{
+			name:     "docker hub image - short two path components",
 			image:    "ollama/ollama:latest",
 			registry: "my-registry.example.com",
 			expected: "my-registry.example.com/ollama/ollama:latest",
+		},
+		{
+			name:     "docker hub non-library namespace",
+			image:    "docker.io/chromedp/headless-shell:stable",
+			registry: "my-registry.example.com",
+			expected: "my-registry.example.com/chromedp/headless-shell:stable",
 		},
 		{
 			name:     "image with digest",

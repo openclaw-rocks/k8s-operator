@@ -574,7 +574,7 @@ func buildInitContainers(instance *openclawv1alpha1.OpenClawInstance, externalWo
 		// overwrite mode uses busybox (lightweight, only needs cp).
 		// Note: ghcr.io/jqlang/jq and ghcr.io/astral-sh/uv base tags are
 		// distroless (no shell), so we cannot use them with "sh -c".
-		initImage := ApplyRegistryOverride("busybox:1.37", instance.Spec.Registry)
+		initImage := ApplyRegistryOverride("docker.io/library/busybox:1.37", instance.Spec.Registry)
 		if instance.Spec.Config.MergeMode == ConfigMergeModeMerge || instance.Spec.Config.Format == ConfigFormatJSON5 {
 			initImage = GetImage(instance)
 		}
@@ -1910,12 +1910,12 @@ func buildChromiumContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.
 		repo = DefaultChromiumImage
 	}
 
-	// Migrate instances created before v0.22.1 that have the old browserless
-	// image stored via kubebuilder defaults. The old image no longer exists
-	// on GHCR, and even if it did, its entrypoint is incompatible with the
-	// Chrome launch flags we pass as container args (#396).
-	if repo == DeprecatedChromiumImage {
-		rLog.Info("migrating deprecated chromium image to default",
+	// Migrate instances with old stored defaults to the current fully-qualified
+	// image. The browserless image no longer exists on GHCR, and even if it did,
+	// its entrypoint is incompatible with the Chrome launch flags we pass as
+	// container args (#396).
+	if repo == DeprecatedChromiumImage || repo == LegacyChromiumImage {
+		rLog.Info("migrating stored chromium image default",
 			"old", repo, "new", DefaultChromiumImage)
 		repo = DefaultChromiumImage
 	}
@@ -1931,7 +1931,7 @@ func buildChromiumContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.
 
 	// The old browserless image defaulted to "latest"; normalize to "stable"
 	// when migrating to the new image.
-	if repo == DefaultChromiumImage && tag == "latest" {
+	if repo == DefaultChromiumImage && tag == DefaultImageTag {
 		tag = DefaultChromiumTag
 	}
 
@@ -2042,7 +2042,17 @@ func buildChromiumContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.
 func buildOllamaContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Container {
 	repo := instance.Spec.Ollama.Image.Repository
 	if repo == "" {
-		repo = "ollama/ollama"
+		repo = DefaultOllamaImage
+	}
+
+	// Migrate the stored unqualified default. OllamaImageSpec.Repository has a
+	// kubebuilder default, so every CR created before the defaults were
+	// qualified has "ollama/ollama" persisted by the API server — which is
+	// exactly the short name CRI-O rejects.
+	if repo == LegacyOllamaImage {
+		rLog.Info("migrating stored ollama image default",
+			"old", repo, "new", DefaultOllamaImage)
+		repo = DefaultOllamaImage
 	}
 
 	tag := instance.Spec.Ollama.Image.Tag
@@ -2097,7 +2107,16 @@ func buildOllamaContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Co
 func buildWebTerminalContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Container {
 	repo := instance.Spec.WebTerminal.Image.Repository
 	if repo == "" {
-		repo = "tsl0922/ttyd"
+		repo = DefaultWebTerminalImage
+	}
+
+	// Same stored-default migration as ollama: WebTerminalImageSpec.Repository
+	// also carries a kubebuilder default, so existing CRs hold the unqualified
+	// "tsl0922/ttyd".
+	if repo == LegacyWebTerminalImage {
+		rLog.Info("migrating stored web-terminal image default",
+			"old", repo, "new", DefaultWebTerminalImage)
+		repo = DefaultWebTerminalImage
 	}
 
 	tag := instance.Spec.WebTerminal.Image.Tag
@@ -2309,7 +2328,17 @@ func buildOllamaModelPullInitContainer(instance *openclawv1alpha1.OpenClawInstan
 
 	repo := instance.Spec.Ollama.Image.Repository
 	if repo == "" {
-		repo = "ollama/ollama"
+		repo = DefaultOllamaImage
+	}
+
+	// Migrate the stored unqualified default. OllamaImageSpec.Repository has a
+	// kubebuilder default, so every CR created before the defaults were
+	// qualified has "ollama/ollama" persisted by the API server — which is
+	// exactly the short name CRI-O rejects.
+	if repo == LegacyOllamaImage {
+		rLog.Info("migrating stored ollama image default",
+			"old", repo, "new", DefaultOllamaImage)
+		repo = DefaultOllamaImage
 	}
 	tag := instance.Spec.Ollama.Image.Tag
 	if tag == "" {

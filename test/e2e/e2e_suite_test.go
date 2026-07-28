@@ -1520,7 +1520,7 @@ var _ = Describe("OpenClawInstance Controller", func() {
 				}
 			}
 			Expect(ollamaContainer).NotTo(BeNil(), "ollama sidecar container should exist")
-			Expect(ollamaContainer.Image).To(Equal("ollama/ollama:latest"))
+			Expect(ollamaContainer.Image).To(Equal("docker.io/ollama/ollama:latest"))
 
 			// Verify ollama-models volume exists
 			var ollamaVol *corev1.Volume
@@ -1691,7 +1691,7 @@ var _ = Describe("OpenClawInstance Controller", func() {
 
 		// Regression test for #396: instances created before v0.22.1 have the
 		// deprecated ghcr.io/browserless/chromium image stored via kubebuilder
-		// defaults. The operator must normalize it to chromedp/headless-shell
+		// defaults. The operator must normalize it to docker.io/chromedp/headless-shell
 		// and must NOT set a Command override (which bypasses run.sh and breaks
 		// CDP on Chrome M136+).
 		It("Should migrate deprecated browserless image to current default", func() {
@@ -1924,7 +1924,8 @@ var _ = Describe("OpenClawInstance Controller", func() {
 				}
 			}
 			Expect(wtContainer).NotTo(BeNil(), "web-terminal sidecar container should exist")
-			Expect(wtContainer.Image).To(Equal("tsl0922/ttyd:latest"))
+			// Fully qualified so CRI-O short-name enforcement accepts it.
+			Expect(wtContainer.Image).To(Equal(resources.DefaultWebTerminalImage + ":" + resources.DefaultImageTag))
 
 			// Verify web-terminal-tmp volume exists
 			var wtVol *corev1.Volume

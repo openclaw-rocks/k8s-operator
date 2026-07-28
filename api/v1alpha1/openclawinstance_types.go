@@ -755,7 +755,7 @@ type ChromiumPersistenceSpec struct {
 // ChromiumImageSpec defines the Chromium container image
 type ChromiumImageSpec struct {
 	// Repository is the container image repository
-	// +kubebuilder:default="chromedp/headless-shell"
+	// +kubebuilder:default="docker.io/chromedp/headless-shell"
 	// +optional
 	Repository string `json:"repository,omitempty"`
 
@@ -870,7 +870,7 @@ type OllamaSpec struct {
 // OllamaImageSpec defines the Ollama container image
 type OllamaImageSpec struct {
 	// Repository is the container image repository
-	// +kubebuilder:default="ollama/ollama"
+	// +kubebuilder:default="docker.io/ollama/ollama"
 	// +optional
 	Repository string `json:"repository,omitempty"`
 
@@ -925,7 +925,7 @@ type WebTerminalSpec struct {
 // WebTerminalImageSpec defines the ttyd container image
 type WebTerminalImageSpec struct {
 	// Repository is the container image repository
-	// +kubebuilder:default="tsl0922/ttyd"
+	// +kubebuilder:default="docker.io/tsl0922/ttyd"
 	// +optional
 	Repository string `json:"repository,omitempty"`
 

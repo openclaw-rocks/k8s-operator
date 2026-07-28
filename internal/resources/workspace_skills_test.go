@@ -227,9 +227,9 @@ func TestCalculateConfigHash_WorkspaceSkillsKeyedByName(t *testing.T) {
 	}
 
 	skill := "pack:acme/skills/example@v1"
-	inFirst := calculateConfigHash(inWs("first", skill), nil, nil)
-	inSecond := calculateConfigHash(inWs("second", skill), nil, nil)
-	baseHash := calculateConfigHash(base, nil, nil)
+	inFirst := calculateConfigHash(inWs("first", skill), nil, nil, nil)
+	inSecond := calculateConfigHash(inWs("second", skill), nil, nil, nil)
+	baseHash := calculateConfigHash(base, nil, nil, nil)
 
 	if inFirst == inSecond {
 		t.Error("moving a skill between workspaces must change the config hash")
@@ -241,7 +241,7 @@ func TestCalculateConfigHash_WorkspaceSkillsKeyedByName(t *testing.T) {
 	// Top-level skill vs the same skill in a workspace must differ too.
 	topLevel := newTestInstance("hash-top")
 	topLevel.Spec.Skills = []string{skill}
-	if calculateConfigHash(topLevel, nil, nil) == inFirst {
+	if calculateConfigHash(topLevel, nil, nil, nil) == inFirst {
 		t.Error("workspace-scoped skill must hash differently from a top-level skill")
 	}
 }

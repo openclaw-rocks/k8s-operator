@@ -70,7 +70,7 @@ func BuildStatefulSet(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenS
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      labels,
-					Annotations: buildPodAnnotations(instance, externalWorkspaceFiles, additionalExternalFiles),
+					Annotations: buildPodAnnotations(instance, skillPacks, externalWorkspaceFiles, additionalExternalFiles),
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName:            ServiceAccountName(instance),
@@ -133,12 +133,12 @@ func BuildStatefulSet(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenS
 }
 
 // buildPodAnnotations builds the pod annotations for the pod template
-func buildPodAnnotations(instance *openclawv1alpha1.OpenClawInstance, externalWorkspaceFiles map[string]string, additionalExternalFiles map[string]map[string]string) map[string]string {
+func buildPodAnnotations(instance *openclawv1alpha1.OpenClawInstance, skillPacks *ResolvedSkillPacks, externalWorkspaceFiles map[string]string, additionalExternalFiles map[string]map[string]string) map[string]string {
 	annotations := make(map[string]string, len(instance.Spec.PodAnnotations)+1)
 	for k, v := range instance.Spec.PodAnnotations {
 		annotations[k] = v
 	}
-	annotations["openclaw.rocks/config-hash"] = calculateConfigHash(instance, externalWorkspaceFiles, additionalExternalFiles)
+	annotations["openclaw.rocks/config-hash"] = calculateConfigHash(instance, skillPacks, externalWorkspaceFiles, additionalExternalFiles)
 	return annotations
 }
 
@@ -2924,13 +2924,42 @@ func getPullPolicy(instance *openclawv1alpha1.OpenClawInstance) corev1.PullPolic
 
 // calculateConfigHash computes a hash of the config, skills, plugins, and
 // runtime settings for rollout detection. Changes to any of these trigger a
-// pod restart. Workspace files are intentionally excluded because they are
-// delivered via a projected ConfigMap volume that the kubelet updates in-place
-// without requiring a pod restart.
-func calculateConfigHash(instance *openclawv1alpha1.OpenClawInstance, _ map[string]string, _ map[string]map[string]string) string {
+// pod restart.
+//
+// The hash covers the RENDERED ConfigMap data (the same openclaw.json/nginx/
+// tailscale/otel bytes produced by BuildConfigMap), not just selected spec
+// fields. This way every spec section the enrichment pipeline reads (e.g.
+// spec.gateway.controlUiOrigins, spec.networking.ingress hosts/TLS) rolls the
+// pod when it changes the config the pod actually consumes. Hashing only
+// hand-picked spec fields previously let the ConfigMap re-render while the
+// StatefulSet never rolled, so pods kept serving the stale config.
+//
+// External workspace files (spec.workspace.configMapRef and per-workspace
+// configMapRefs) are hashed too: the workspace-init container copies them into
+// the workspace at pod start, so content changes only take effect after a
+// restart. Inline spec.workspace.initialFiles remain excluded (unchanged
+// behavior; they are delivered via a projected ConfigMap volume).
+//
+// The gateway token is deliberately NOT part of the hash: BuildConfigMap is
+// invoked with an empty token here, so token rotation does not roll the pod
+// (same behavior as before).
+func calculateConfigHash(instance *openclawv1alpha1.OpenClawInstance, skillPacks *ResolvedSkillPacks, externalWorkspaceFiles map[string]string, additionalExternalFiles map[string]map[string]string) string {
 	h := sha256.New()
 	configData, _ := json.Marshal(instance.Spec.Config)
 	h.Write(configData)
+	// Rendered ConfigMap data: openclaw.json after the full enrichment
+	// pipeline plus the nginx/tailscale-serve/otel-collector companion keys.
+	// json.Marshal sorts map keys, so this is deterministic across reconciles.
+	renderedData, _ := json.Marshal(BuildConfigMap(instance, "", skillPacks).Data)
+	h.Write(renderedData)
+	if len(externalWorkspaceFiles) > 0 {
+		extData, _ := json.Marshal(externalWorkspaceFiles)
+		h.Write(extData)
+	}
+	if len(additionalExternalFiles) > 0 {
+		addExtData, _ := json.Marshal(additionalExternalFiles)
+		h.Write(addExtData)
+	}
 	if len(instance.Spec.Skills) > 0 {
 		skillsData, _ := json.Marshal(instance.Spec.Skills)
 		h.Write(skillsData)

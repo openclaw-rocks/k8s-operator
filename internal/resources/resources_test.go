@@ -4895,7 +4895,7 @@ func TestBuildInitScript_WithExternalFiles(t *testing.T) {
 	}
 }
 
-func TestConfigHash_StableWithExternalWorkspace(t *testing.T) {
+func TestConfigHash_ChangesWithExternalWorkspaceFiles(t *testing.T) {
 	instance := newTestInstance("hash-ext")
 
 	sts1 := BuildStatefulSet(instance, "", nil, nil, nil)
@@ -4907,8 +4907,87 @@ func TestConfigHash_StableWithExternalWorkspace(t *testing.T) {
 	sts2 := BuildStatefulSet(instance, "", nil, externalFiles, nil)
 	hash2 := sts2.Spec.Template.Annotations["openclaw.rocks/config-hash"]
 
+	if hash1 == hash2 {
+		t.Error("config hash must change when external workspace files are added (workspace-init only copies them at pod start)")
+	}
+
+	// Content-only change: the init script embeds file names but not contents,
+	// so the hash is the only thing that can trigger the rollout.
+	externalFiles["AGENT.md"] = "# Updated external agent content"
+	sts3 := BuildStatefulSet(instance, "", nil, externalFiles, nil)
+	hash3 := sts3.Spec.Template.Annotations["openclaw.rocks/config-hash"]
+
+	if hash2 == hash3 {
+		t.Error("config hash must change when external workspace file content changes")
+	}
+}
+
+func TestConfigHash_ChangesWithAdditionalExternalFiles(t *testing.T) {
+	instance := newTestInstance("hash-add-ext")
+
+	sts1 := BuildStatefulSet(instance, "", nil, nil, nil)
+	hash1 := sts1.Spec.Template.Annotations["openclaw.rocks/config-hash"]
+
+	additionalFiles := map[string]map[string]string{
+		"secondary": {"NOTES.md": "# Secondary workspace notes"},
+	}
+	sts2 := BuildStatefulSet(instance, "", nil, nil, additionalFiles)
+	hash2 := sts2.Spec.Template.Annotations["openclaw.rocks/config-hash"]
+
+	if hash1 == hash2 {
+		t.Error("config hash must change when additional-workspace external files change")
+	}
+}
+
+func TestConfigHash_ChangesWithControlUIOrigins(t *testing.T) {
+	instance := newTestInstance("hash-cui")
+
+	sts1 := BuildStatefulSet(instance, "", nil, nil, nil)
+	hash1 := sts1.Spec.Template.Annotations["openclaw.rocks/config-hash"]
+
+	instance.Spec.Gateway.ControlUIOrigins = []string{"https://claw.example.com"}
+
+	sts2 := BuildStatefulSet(instance, "", nil, nil, nil)
+	hash2 := sts2.Spec.Template.Annotations["openclaw.rocks/config-hash"]
+
+	if hash1 == hash2 {
+		t.Error("config hash must change when spec.gateway.controlUiOrigins changes (it re-renders gateway.controlUi.allowedOrigins)")
+	}
+}
+
+func TestConfigHash_ChangesWithIngressHosts(t *testing.T) {
+	instance := newTestInstance("hash-ingress")
+
+	sts1 := BuildStatefulSet(instance, "", nil, nil, nil)
+	hash1 := sts1.Spec.Template.Annotations["openclaw.rocks/config-hash"]
+
+	instance.Spec.Networking.Ingress.Hosts = []openclawv1alpha1.IngressHost{
+		{Host: "claw.example.com"},
+	}
+
+	sts2 := BuildStatefulSet(instance, "", nil, nil, nil)
+	hash2 := sts2.Spec.Template.Annotations["openclaw.rocks/config-hash"]
+
+	if hash1 == hash2 {
+		t.Error("config hash must change when ingress hosts change (they feed derived control UI origins)")
+	}
+}
+
+func TestConfigHash_StableWithUnrelatedSpecChange(t *testing.T) {
+	instance := newTestInstance("hash-unrelated")
+
+	sts1 := BuildStatefulSet(instance, "", nil, nil, nil)
+	hash1 := sts1.Spec.Template.Annotations["openclaw.rocks/config-hash"]
+
+	instance.Spec.Resources = openclawv1alpha1.ResourcesSpec{
+		Limits: openclawv1alpha1.ResourceList{Memory: "2Gi"},
+	}
+
+	sts2 := BuildStatefulSet(instance, "", nil, nil, nil)
+	hash2 := sts2.Spec.Template.Annotations["openclaw.rocks/config-hash"]
+
 	if hash1 != hash2 {
-		t.Error("config hash should not change for workspace-only changes (delivered via ConfigMap volume)")
+		t.Error("config hash must not change for spec changes that do not affect rendered config (resources roll the pod via the template itself)")
 	}
 }
 
@@ -13135,7 +13214,7 @@ func TestBuildInitScript_AdditionalWorkspaces(t *testing.T) {
 	}
 }
 
-func TestConfigHash_StableWithAdditionalWorkspace(t *testing.T) {
+func TestConfigHash_ChangesWithAdditionalWorkspaceExternalFiles(t *testing.T) {
 	instance := newTestInstance("ws-addl-hash")
 	instance.Spec.Workspace = &openclawv1alpha1.WorkspaceSpec{
 		AdditionalWorkspaces: []openclawv1alpha1.AdditionalWorkspace{
@@ -13146,15 +13225,16 @@ func TestConfigHash_StableWithAdditionalWorkspace(t *testing.T) {
 	sts1 := BuildStatefulSet(instance, "", nil, nil, nil)
 	hash1 := sts1.Spec.Template.Annotations["openclaw.rocks/config-hash"]
 
-	// Add additional external files — hash should remain stable
+	// Adding additional external files must change the hash: workspace-init
+	// only copies them into the workspace at pod start.
 	additionalExt := map[string]map[string]string{
 		"work": {"SOUL.md": "work soul"},
 	}
 	sts2 := BuildStatefulSet(instance, "", nil, nil, additionalExt)
 	hash2 := sts2.Spec.Template.Annotations["openclaw.rocks/config-hash"]
 
-	if hash1 != hash2 {
-		t.Error("config hash should not change for workspace-only changes (delivered via ConfigMap volume)")
+	if hash1 == hash2 {
+		t.Error("config hash must change when additional-workspace external files change")
 	}
 }
 

@@ -1257,7 +1257,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `repository` _string_ | Repository is the container image repository | tsl0922/ttyd | Optional: \{\} <br /> |
+| `repository` _string_ | Repository is the container image repository | docker.io/tsl0922/ttyd | Optional: \{\} <br /> |
 | `tag` _string_ | Tag is the container image tag | latest | Optional: \{\} <br /> |
 | `digest` _string_ | Digest is the container image digest for supply chain security |  | Optional: \{\} <br /> |
 

@@ -9588,7 +9588,7 @@ spec:
                           chain security
                         type: string
                       repository:
-                        default: tsl0922/ttyd
+                        default: docker.io/tsl0922/ttyd
                         description: Repository is the container image repository
                         type: string
                       tag:

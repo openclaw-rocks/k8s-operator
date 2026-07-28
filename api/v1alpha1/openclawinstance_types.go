@@ -925,7 +925,7 @@ type WebTerminalSpec struct {
 // WebTerminalImageSpec defines the ttyd container image
 type WebTerminalImageSpec struct {
 	// Repository is the container image repository
-	// +kubebuilder:default="tsl0922/ttyd"
+	// +kubebuilder:default="docker.io/tsl0922/ttyd"
 	// +optional
 	Repository string `json:"repository,omitempty"`
 

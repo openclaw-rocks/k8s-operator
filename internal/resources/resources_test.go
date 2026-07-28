@@ -9587,8 +9587,10 @@ func TestBuildStatefulSet_OllamaEnabled_CustomImageDigest(t *testing.T) {
 	if ollama == nil {
 		t.Fatal("ollama container not found")
 	}
-	if ollama.Image != "ollama/ollama@sha256:ollamahash" {
-		t.Errorf("ollama image = %q, want %q", ollama.Image, "ollama/ollama@sha256:ollamahash")
+	// The stored unqualified repository migrates to the fully-qualified default
+	// before the digest is applied.
+	if want := DefaultOllamaImage + "@sha256:ollamahash"; ollama.Image != want {
+		t.Errorf("ollama image = %q, want %q", ollama.Image, want)
 	}
 }
 
@@ -10844,9 +10846,9 @@ func TestBuildStatefulSet_WebTerminalEnabled(t *testing.T) {
 		t.Fatal("web-terminal container not found")
 	}
 
-	// Image defaults
-	if wt.Image != "tsl0922/ttyd:latest" {
-		t.Errorf("web-terminal image = %q, want default", wt.Image)
+	// Image defaults (fully qualified so CRI-O short-name enforcement accepts it)
+	if want := DefaultWebTerminalImage + ":" + DefaultImageTag; wt.Image != want {
+		t.Errorf("web-terminal image = %q, want %q", wt.Image, want)
 	}
 
 	// Port
@@ -10985,8 +10987,8 @@ func TestBuildStatefulSet_WebTerminalDigest(t *testing.T) {
 		}
 	}
 
-	if wt.Image != "tsl0922/ttyd@sha256:abcdef1234567890" {
-		t.Errorf("web-terminal image = %q, want tsl0922/ttyd@sha256:abcdef1234567890", wt.Image)
+	if want := DefaultWebTerminalImage + "@sha256:abcdef1234567890"; wt.Image != want {
+		t.Errorf("web-terminal image = %q, want %q", wt.Image, want)
 	}
 }
 
@@ -12648,6 +12650,103 @@ func TestBuildStatefulSet_ChromiumMigratesLegacyUnqualifiedImage(t *testing.T) {
 		}
 	}
 	t.Fatal("chromium init container not found")
+}
+
+// Ollama has the same stored-default problem chromium had: OllamaImageSpec
+// .Repository carries a kubebuilder default, so the API server persisted the
+// unqualified "ollama/ollama" into every CR created before the defaults were
+// qualified. Without migration those instances keep rendering a short name and
+// keep hitting ImageInspectError under CRI-O short-name enforcement.
+func TestBuildStatefulSet_OllamaMigratesLegacyUnqualifiedImage(t *testing.T) {
+	instance := newTestInstance("migrate-ollama-img")
+	instance.Spec.Ollama.Enabled = true
+	instance.Spec.Ollama.Image.Repository = LegacyOllamaImage
+	instance.Spec.Ollama.Image.Tag = "latest"
+
+	sts := BuildStatefulSet(instance, "", nil, nil, nil)
+
+	want := DefaultOllamaImage + ":latest"
+	found := false
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		if c.Name == "ollama" {
+			found = true
+			if c.Image != want {
+				t.Errorf("ollama image = %q, want %q (should migrate legacy unqualified image)", c.Image, want)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("ollama container not found")
+	}
+}
+
+// The model-pull init container builds its image reference independently of the
+// sidecar, so it needs its own coverage — migrating only one of the two would
+// still leave a short name on the pod.
+func TestBuildStatefulSet_OllamaModelPullMigratesLegacyUnqualifiedImage(t *testing.T) {
+	instance := newTestInstance("migrate-ollama-pull-img")
+	instance.Spec.Ollama.Enabled = true
+	instance.Spec.Ollama.Image.Repository = LegacyOllamaImage
+	instance.Spec.Ollama.Image.Tag = "latest"
+	instance.Spec.Ollama.Models = []string{"llama3"}
+
+	sts := BuildStatefulSet(instance, "", nil, nil, nil)
+
+	want := DefaultOllamaImage + ":latest"
+	for _, c := range sts.Spec.Template.Spec.InitContainers {
+		if strings.Contains(c.Name, "ollama") {
+			if c.Image != want {
+				t.Errorf("ollama init container %q image = %q, want %q", c.Name, c.Image, want)
+			}
+			return
+		}
+	}
+	t.Fatal("ollama model-pull init container not found")
+}
+
+// WebTerminalImageSpec.Repository also carries a kubebuilder default, and it was
+// still unqualified ("tsl0922/ttyd") — both in the CRD default and the code
+// fallback — so web-terminal instances hit the same ImageInspectError.
+func TestBuildStatefulSet_WebTerminalMigratesLegacyUnqualifiedImage(t *testing.T) {
+	instance := newTestInstance("migrate-ttyd-img")
+	instance.Spec.WebTerminal.Enabled = true
+	instance.Spec.WebTerminal.Image.Repository = LegacyWebTerminalImage
+	instance.Spec.WebTerminal.Image.Tag = "latest"
+
+	sts := BuildStatefulSet(instance, "", nil, nil, nil)
+
+	want := DefaultWebTerminalImage + ":latest"
+	found := false
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		if c.Name == "web-terminal" {
+			found = true
+			if c.Image != want {
+				t.Errorf("web-terminal image = %q, want %q (should migrate legacy unqualified image)", c.Image, want)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("web-terminal container not found")
+	}
+}
+
+// A registry mirror must still yield the same reference as before the defaults
+// were qualified: ApplyRegistryOverride strips the docker.io/ prefix, so
+// mirror users are unaffected by the migration.
+func TestApplyRegistryOverride_QualifiedDefaultsMatchLegacy(t *testing.T) {
+	const mirror = "my-mirror.example.com"
+	cases := []struct{ qualified, legacy string }{
+		{DefaultOllamaImage, LegacyOllamaImage},
+		{DefaultWebTerminalImage, LegacyWebTerminalImage},
+		{DefaultChromiumImage, LegacyChromiumImage},
+	}
+	for _, tc := range cases {
+		got := ApplyRegistryOverride(tc.qualified, mirror)
+		want := ApplyRegistryOverride(tc.legacy, mirror)
+		if got != want {
+			t.Errorf("registry override drift: %q -> %q, but legacy %q -> %q", tc.qualified, got, tc.legacy, want)
+		}
+	}
 }
 
 func TestChromiumArgs_Deduplication(t *testing.T) {

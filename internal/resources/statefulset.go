@@ -1931,7 +1931,7 @@ func buildChromiumContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.
 
 	// The old browserless image defaulted to "latest"; normalize to "stable"
 	// when migrating to the new image.
-	if repo == DefaultChromiumImage && tag == "latest" {
+	if repo == DefaultChromiumImage && tag == DefaultImageTag {
 		tag = DefaultChromiumTag
 	}
 
@@ -2042,7 +2042,17 @@ func buildChromiumContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.
 func buildOllamaContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Container {
 	repo := instance.Spec.Ollama.Image.Repository
 	if repo == "" {
-		repo = "docker.io/ollama/ollama"
+		repo = DefaultOllamaImage
+	}
+
+	// Migrate the stored unqualified default. OllamaImageSpec.Repository has a
+	// kubebuilder default, so every CR created before the defaults were
+	// qualified has "ollama/ollama" persisted by the API server — which is
+	// exactly the short name CRI-O rejects.
+	if repo == LegacyOllamaImage {
+		rLog.Info("migrating stored ollama image default",
+			"old", repo, "new", DefaultOllamaImage)
+		repo = DefaultOllamaImage
 	}
 
 	tag := instance.Spec.Ollama.Image.Tag
@@ -2097,7 +2107,16 @@ func buildOllamaContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Co
 func buildWebTerminalContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Container {
 	repo := instance.Spec.WebTerminal.Image.Repository
 	if repo == "" {
-		repo = "tsl0922/ttyd"
+		repo = DefaultWebTerminalImage
+	}
+
+	// Same stored-default migration as ollama: WebTerminalImageSpec.Repository
+	// also carries a kubebuilder default, so existing CRs hold the unqualified
+	// "tsl0922/ttyd".
+	if repo == LegacyWebTerminalImage {
+		rLog.Info("migrating stored web-terminal image default",
+			"old", repo, "new", DefaultWebTerminalImage)
+		repo = DefaultWebTerminalImage
 	}
 
 	tag := instance.Spec.WebTerminal.Image.Tag
@@ -2309,7 +2328,17 @@ func buildOllamaModelPullInitContainer(instance *openclawv1alpha1.OpenClawInstan
 
 	repo := instance.Spec.Ollama.Image.Repository
 	if repo == "" {
-		repo = "docker.io/ollama/ollama"
+		repo = DefaultOllamaImage
+	}
+
+	// Migrate the stored unqualified default. OllamaImageSpec.Repository has a
+	// kubebuilder default, so every CR created before the defaults were
+	// qualified has "ollama/ollama" persisted by the API server — which is
+	// exactly the short name CRI-O rejects.
+	if repo == LegacyOllamaImage {
+		rLog.Info("migrating stored ollama image default",
+			"old", repo, "new", DefaultOllamaImage)
+		repo = DefaultOllamaImage
 	}
 	tag := instance.Spec.Ollama.Image.Tag
 	if tag == "" {

@@ -90,8 +90,25 @@ const (
 	// OllamaPort is the port for the Ollama API
 	OllamaPort = 11434
 
+	// DefaultOllamaImage is the default image for the Ollama sidecar.
+	DefaultOllamaImage = "docker.io/ollama/ollama"
+
+	// LegacyOllamaImage is the old unqualified Docker Hub default. Because
+	// OllamaImageSpec.Repository carries a kubebuilder default, the API server
+	// persisted this value into every CR created before the defaults were
+	// qualified. Normalized at reconcile time so those instances stop rendering
+	// a short name that CRI-O short-name enforcement rejects.
+	LegacyOllamaImage = "ollama/ollama"
+
 	// WebTerminalPort is the port for the ttyd web terminal
 	WebTerminalPort = 7681
+
+	// DefaultWebTerminalImage is the default image for the ttyd sidecar.
+	DefaultWebTerminalImage = "docker.io/tsl0922/ttyd"
+
+	// LegacyWebTerminalImage is the old unqualified Docker Hub default, stored
+	// in existing CRs by the same kubebuilder-default mechanism as Ollama.
+	LegacyWebTerminalImage = "tsl0922/ttyd"
 
 	// ConfigMergeModeMerge is the merge mode that deep-merges config with existing PVC config
 	ConfigMergeModeMerge = "merge"

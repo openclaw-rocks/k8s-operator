@@ -268,11 +268,12 @@ func buildEgressRules(instance *openclawv1alpha1.OpenClawInstance) []networkingv
 		},
 	})
 
-	// Allow K8s API server egress when self-configure or tailscale is enabled.
-	// Port 6443 covers clusters where the API server listens on a non-standard
-	// port (e.g., K3s DNATs 443 -> 6443 before NetworkPolicy evaluation).
-	// Tailscale needs this to manage its state secret via the K8s API.
-	if instance.Spec.SelfConfigure.Enabled || instance.Spec.Tailscale.Enabled {
+	// Allow K8s API server egress when self-configure is enabled. Port 6443
+	// covers clusters where the API server listens on a non-standard port
+	// (e.g., K3s DNATs 443 -> 6443 before NetworkPolicy evaluation). A mesh
+	// provider that manages state via the K8s API contributes the same rule
+	// through MeshEgressRules.
+	if instance.Spec.SelfConfigure.Enabled {
 		rules = append(rules, networkingv1.NetworkPolicyEgressRule{
 			To: []networkingv1.NetworkPolicyPeer{},
 			Ports: []networkingv1.NetworkPolicyPort{
@@ -284,22 +285,9 @@ func buildEgressRules(instance *openclawv1alpha1.OpenClawInstance) []networkingv
 		})
 	}
 
-	// Allow Tailscale STUN and WireGuard egress when enabled
-	if instance.Spec.Tailscale.Enabled {
-		rules = append(rules, networkingv1.NetworkPolicyEgressRule{
-			To: []networkingv1.NetworkPolicyPeer{},
-			Ports: []networkingv1.NetworkPolicyPort{
-				{
-					Protocol: Ptr(corev1.ProtocolUDP),
-					Port:     Ptr(intstr.FromInt(3478)),
-				},
-				{
-					Protocol: Ptr(corev1.ProtocolUDP),
-					Port:     Ptr(intstr.FromInt(41641)),
-				},
-			},
-		})
-	}
+	// Mesh provider control and data plane egress (#560). Each provider owns
+	// its own coordination server, STUN and WireGuard ports.
+	rules = append(rules, MeshEgressRules(instance)...)
 
 	// Allow egress to the Chromium sidecar. The main container reaches Chrome
 	// via a headless Service that resolves to the pod's own IP. Cilium

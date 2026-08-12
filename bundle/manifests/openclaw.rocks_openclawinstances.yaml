@@ -5140,6 +5140,92 @@ spec:
                   type: object
                 maxItems: 10
                 type: array
+              netbird:
+                description: |-
+                  NetBird configures NetBird overlay network integration, a self-hostable
+                  alternative to Tailscale. At most one mesh provider (tailscale, netbird)
+                  may be enabled per instance.
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled enables the NetBird sidecar.
+                    type: boolean
+                  hostname:
+                    description: Hostname sets the NetBird peer name (defaults to
+                      the instance name).
+                    type: string
+                  image:
+                    description: Image configures the NetBird sidecar container image.
+                    properties:
+                      digest:
+                        description: Digest is the container image digest for supply
+                          chain security
+                        type: string
+                      repository:
+                        default: docker.io/netbirdio/netbird
+                        description: Repository is the container image repository
+                        type: string
+                      tag:
+                        default: latest
+                        description: Tag is the container image tag
+                        type: string
+                    type: object
+                  managementURL:
+                    description: |-
+                      ManagementURL points at a self-hosted NetBird management server, e.g.
+                      "https://netbird.example.com:33073". Defaults to NetBird's hosted
+                      control plane when unset.
+                    type: string
+                  resources:
+                    description: Resources specifies compute resources for the NetBird
+                      sidecar container.
+                    properties:
+                      limits:
+                        description: Limits describes the maximum amount of compute
+                          resources allowed
+                        properties:
+                          cpu:
+                            description: CPU resource (e.g., "500m", "2")
+                            type: string
+                          memory:
+                            description: Memory resource (e.g., "512Mi", "2Gi")
+                            type: string
+                        type: object
+                      requests:
+                        description: Requests describes the minimum amount of compute
+                          resources required
+                        properties:
+                          cpu:
+                            description: CPU resource (e.g., "500m", "2")
+                            type: string
+                          memory:
+                            description: Memory resource (e.g., "512Mi", "2Gi")
+                            type: string
+                        type: object
+                    type: object
+                  setupKeySecretKey:
+                    default: setupkey
+                    description: SetupKeySecretKey is the key in the referenced Secret.
+                    type: string
+                  setupKeySecretRef:
+                    description: |-
+                      SetupKeySecretRef references a Secret containing the NetBird setup key
+                      used to enroll this peer. The Secret must have a key matching
+                      SetupKeySecretKey (default: "setupkey"). Use a reusable, ephemeral setup
+                      key from the NetBird dashboard.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
               networking:
                 description: Networking specifies network-related configuration
                 properties:

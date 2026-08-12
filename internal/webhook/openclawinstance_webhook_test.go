@@ -2255,3 +2255,62 @@ func TestValidateCreate_AcceptsValidManagedFiles(t *testing.T) {
 		t.Errorf("valid managedFiles should be accepted, got %v", err)
 	}
 }
+
+// Mesh provider validation (#560).
+
+// Two overlay clients in one pod would race for the same egress rules and the
+// agent's routing, so the combination is rejected rather than silently picking one.
+func TestValidateCreate_RejectsTwoMeshProviders(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Tailscale.Enabled = true
+	instance.Spec.NetBird = &openclawv1alpha1.NetBirdSpec{
+		Enabled:           true,
+		SetupKeySecretRef: &corev1.LocalObjectReference{Name: "nb-key"},
+	}
+
+	if _, err := v.ValidateCreate(context.Background(), instance); err == nil {
+		t.Error("enabling both tailscale and netbird should be rejected")
+	}
+}
+
+func TestValidateCreate_SingleMeshProviderIsValid(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.NetBird = &openclawv1alpha1.NetBirdSpec{
+		Enabled:           true,
+		SetupKeySecretRef: &corev1.LocalObjectReference{Name: "nb-key"},
+	}
+
+	if _, err := v.ValidateCreate(context.Background(), instance); err != nil {
+		t.Errorf("netbird alone should be valid, got %v", err)
+	}
+}
+
+func TestValidateCreate_WarnsMeshWithoutCredential(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.NetBird = &openclawv1alpha1.NetBirdSpec{Enabled: true}
+
+	warnings, err := v.ValidateCreate(context.Background(), instance)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !containsWarning(warnings, "netbird") {
+		t.Errorf("expected a warning that the peer cannot enroll, got %v", warnings)
+	}
+}
+
+func TestValidateCreate_RejectsInvalidNetBirdResources(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.NetBird = &openclawv1alpha1.NetBirdSpec{
+		Enabled:           true,
+		SetupKeySecretRef: &corev1.LocalObjectReference{Name: "nb-key"},
+	}
+	instance.Spec.NetBird.Resources.Requests.CPU = "not-a-quantity"
+
+	if _, err := v.ValidateCreate(context.Background(), instance); err == nil {
+		t.Error("an invalid netbird resource quantity should be rejected")
+	}
+}

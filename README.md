@@ -472,6 +472,41 @@ When enabled, the operator runs a **Tailscale sidecar** (`tailscaled`) that hand
 
 Use ephemeral+reusable auth keys from the [Tailscale admin console](https://login.tailscale.com/admin/settings/keys). When `authSSO` is enabled, tailnet members can authenticate without a gateway token.
 
+### NetBird integration
+
+[NetBird](https://github.com/netbirdio/netbird) is a self-hostable alternative to Tailscale: the same WireGuard data plane, with a control plane you can run yourself.
+
+```yaml
+spec:
+  netbird:
+    enabled: true
+    setupKeySecretRef:
+      name: netbird-setup-key       # key: "setupkey"
+    managementURL: https://netbird.example.com:33073   # omit for NetBird's hosted control plane
+    hostname: my-agent              # defaults to the instance name
+```
+
+Use a reusable, ephemeral setup key from the NetBird dashboard. The operator injects it as `NB_SETUP_KEY` from the referenced Secret -- it is never written into the pod spec as a literal -- and rolls the pod when the Secret changes.
+
+The sidecar runs in **netstack (userspace) mode**, so it keeps the same Restricted PSS posture as every other container the operator builds: all capabilities dropped, read-only root filesystem, non-root, seccomp `RuntimeDefault`. A kernel-mode peer would need `NET_ADMIN` and `/dev/net/tun`, which is a different security decision than this operator makes by default.
+
+Peer state lives on an emptyDir, so the peer re-enrolls on restart (which a reusable setup key handles). Unlike Tailscale, NetBird needs no Kubernetes API access, so no ServiceAccount token is mounted and no state Secret is created.
+
+**Mesh providers are mutually exclusive.** Enabling both `tailscale` and `netbird` is rejected by the validating webhook: two overlay clients in one pod would race for the same egress rules and the agent's routing.
+
+Feature comparison:
+
+| | Tailscale | NetBird |
+|---|---|---|
+| Self-hostable control plane | no | yes (`managementURL`) |
+| Credential | auth key | setup key |
+| Serve/Funnel ingress | yes (`mode`) | not applicable |
+| Gateway SSO (`authSSO`) | yes | no identity header equivalent |
+| Needs Kubernetes API | yes (state Secret) | no |
+| Persistent node identity | yes (state Secret) | re-enrolls on restart |
+
+Both are implementations of one internal `MeshProvider` interface, so a third provider means implementing that interface and adding one table entry -- not another copy of the StatefulSet, NetworkPolicy, RBAC and config-enrichment paths.
+
 ### Config merge mode
 
 By default, the operator overwrites the config file on every pod restart. Set `mergeMode: merge` to deep-merge operator config with existing PVC config, preserving runtime changes made by the agent:

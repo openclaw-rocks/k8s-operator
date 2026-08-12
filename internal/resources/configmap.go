@@ -72,8 +72,9 @@ func BuildConfigMapFromBytes(instance *openclawv1alpha1.OpenClawInstance, baseCo
 	if enriched, err := enrichConfigWithDeviceAuth(configBytes); err == nil {
 		configBytes = enriched
 	}
-	if instance.Spec.Tailscale.Enabled {
-		if enriched, err := enrichConfigWithTailscale(configBytes, instance); err == nil {
+	// Mesh provider config enrichment, e.g. Tailscale SSO auth mode (#560)
+	if mesh := ActiveMeshProvider(instance); mesh != nil {
+		if enriched, err := mesh.EnrichConfig(configBytes, instance); err == nil {
 			configBytes = enriched
 		}
 	}
@@ -116,9 +117,12 @@ func BuildConfigMapFromBytes(instance *openclawv1alpha1.OpenClawInstance, baseCo
 		data[NginxConfigKey] = nginxStreamConfig()
 	}
 
-	// Add Tailscale serve config when enabled (sidecar reads this via TS_SERVE_CONFIG)
-	if instance.Spec.Tailscale.Enabled {
-		data[TailscaleServeConfigKey] = BuildTailscaleServeConfig(instance)
+	// Mesh provider ConfigMap keys, e.g. the Tailscale serve config the sidecar
+	// reads via TS_SERVE_CONFIG (#560)
+	if mesh := ActiveMeshProvider(instance); mesh != nil {
+		for k, v := range mesh.ConfigMapData(instance) {
+			data[k] = v
+		}
 	}
 
 	// Add OTel Collector config when metrics are enabled

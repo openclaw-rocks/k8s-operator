@@ -81,17 +81,22 @@ func BuildGatewayTokenSecret(instance *openclawv1alpha1.OpenClawInstance, tokenH
 	}
 }
 
-// BuildTailscaleStateSecret creates an empty Secret for Tailscale to persist
-// node identity and certificate state across pod restarts. The containerboot
-// process reads and writes state to this Secret via the Kubernetes API when
-// TS_KUBE_SECRET is set. This prevents hostname incrementing and Let's Encrypt
-// certificate re-issuance on every restart.
-func BuildTailscaleStateSecret(instance *openclawv1alpha1.OpenClawInstance) *corev1.Secret {
+// BuildMeshStateSecret creates an empty Secret for a mesh provider to persist
+// node identity and certificate state across pod restarts. Tailscale's
+// containerboot reads and writes it via the Kubernetes API when TS_KUBE_SECRET
+// is set, which prevents hostname incrementing and Let's Encrypt certificate
+// re-issuance on every restart.
+func BuildMeshStateSecret(instance *openclawv1alpha1.OpenClawInstance, name string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      TailscaleStateSecretName(instance),
+			Name:      name,
 			Namespace: instance.Namespace,
 			Labels:    Labels(instance),
 		},
 	}
+}
+
+// BuildTailscaleStateSecret is retained for the Tailscale-specific name.
+func BuildTailscaleStateSecret(instance *openclawv1alpha1.OpenClawInstance) *corev1.Secret {
+	return BuildMeshStateSecret(instance, TailscaleStateSecretName(instance))
 }

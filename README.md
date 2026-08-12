@@ -170,8 +170,10 @@ To run the operator with namespaced RBAC instead of cluster-wide permissions,
 list the namespaces it should watch. The chart switches the namespace-scoped
 permissions from a `ClusterRole`/`ClusterRoleBinding` to per-namespace
 `Role`/`RoleBinding`, and passes `--watch-namespaces` to the operator so its
-informer cache is scoped to that list (plus the operator's own namespace, for
-backup credentials). A small `ClusterRole`/`ClusterRoleBinding` is still created
+informer cache is scoped to that list. The operator's own namespace is added to
+the **Secret** informer only, so it can still read its backup credentials, and
+the chart renders a matching Secret-only `Role` there; no other resource type is
+watched or granted in the operator namespace. A `ClusterRole`/`ClusterRoleBinding` is still created
 for the cluster-scoped `OpenClawClusterDefaults` resource, which the operator
 watches regardless of namespace scoping -- a namespaced `Role` cannot grant
 access to a cluster-scoped resource.

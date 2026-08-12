@@ -35,6 +35,42 @@ subjects:
     name: {{ $saName }}
     namespace: {{ $saNamespace }}
 {{- end }}
+{{- if not (has $saNamespace .Values.watchNamespaces) }}
+---
+# In namespaced mode the operator still reads its own backup credentials Secret
+# (s3-backup-credentials) from the release namespace, so the Secret informer is
+# scoped to the watched namespaces plus this one. Without a matching Role the
+# informer fails with Forbidden and the manager never starts (#586). Only
+# Secrets are granted here -- the operator manages no child resources in its own
+# namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $managerName }}-operator-ns
+  namespace: {{ $saNamespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $managerBinding }}-operator-ns
+  namespace: {{ $saNamespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $managerName }}-operator-ns
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ $saNamespace }}
+{{- end }}
 ---
 # OpenClawClusterDefaults is cluster-scoped (#457). Even when watching specific
 # namespaces, the operator must be granted access via a ClusterRole -- a

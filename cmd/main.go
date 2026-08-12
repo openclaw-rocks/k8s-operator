@@ -36,11 +36,13 @@ import (
 	otelmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.30.0"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -147,17 +149,7 @@ func main() {
 
 	watchNamespaces := parseWatchNamespaces(watchNamespacesFlag)
 	if len(watchNamespaces) > 0 {
-		nsCfg := make(map[string]cache.Config, len(watchNamespaces)+1)
-		for _, ns := range watchNamespaces {
-			nsCfg[ns] = cache.Config{}
-		}
-		// Always include the operator's own namespace so it can read its
-		// backup credentials Secret and other operator-scoped resources
-		// (e.g. s3-backup-credentials).
-		if _, ok := nsCfg[operatorNamespace]; !ok {
-			nsCfg[operatorNamespace] = cache.Config{}
-		}
-		mgrOpts.Cache = cache.Options{DefaultNamespaces: nsCfg}
+		mgrOpts.Cache = buildCacheOptions(watchNamespaces, operatorNamespace)
 		setupLog.Info("restricting watch to namespaces", "namespaces", watchNamespaces, "operatorNamespace", operatorNamespace)
 	}
 
@@ -273,6 +265,32 @@ func parseWatchNamespaces(raw string) []string {
 		out = append(out, ns)
 	}
 	return out
+}
+
+// buildCacheOptions restricts the manager cache to the watched namespaces.
+//
+// The operator also reads its own backup credentials Secret from its release
+// namespace. That namespace used to be added to DefaultNamespaces, which
+// started an informer there for every watched type -- Deployments,
+// StatefulSets, Services and the rest. The chart only renders Roles in the
+// watched namespaces, so those informers failed with Forbidden and the manager
+// never started (#586). Only the Secret informer is widened instead, which is
+// all the credential read actually needs.
+func buildCacheOptions(watchNamespaces []string, operatorNamespace string) cache.Options {
+	defaultNamespaces := make(map[string]cache.Config, len(watchNamespaces))
+	secretNamespaces := make(map[string]cache.Config, len(watchNamespaces)+1)
+	for _, ns := range watchNamespaces {
+		defaultNamespaces[ns] = cache.Config{}
+		secretNamespaces[ns] = cache.Config{}
+	}
+	secretNamespaces[operatorNamespace] = cache.Config{}
+
+	return cache.Options{
+		DefaultNamespaces: defaultNamespaces,
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.Secret{}: {Namespaces: secretNamespaces},
+		},
+	}
 }
 
 // setupOTLPMetrics configures an OTLP gRPC metrics exporter that bridges all

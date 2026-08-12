@@ -223,9 +223,19 @@ var _ = Describe("OpenClawInstance forcePaths (#500)", func() {
 				return false
 			}
 			for _, cs := range pod.Status.ContainerStatuses {
-				if cs.Name == "openclaw" && cs.State.Running != nil {
+				if cs.Name != "openclaw" {
+					continue
+				}
+				// Ready, not merely Running: a container that has just entered
+				// Running can still be replaced moments later, and the exec
+				// below then fails with container not found. With probes
+				// disabled Ready follows Running, so this costs nothing on a
+				// healthy pod while refusing a container that is cycling.
+				if cs.State.Running != nil && cs.Ready {
 					return true
 				}
+				GinkgoWriter.Printf("post-restart openclaw ready=%t restarts=%d state=%s\n",
+					cs.Ready, cs.RestartCount, summarizeStatuses([]corev1.ContainerStatus{cs}))
 			}
 			GinkgoWriter.Printf("post-restart pod %s phase=%s init=%s containers=%s\n",
 				podName, pod.Status.Phase,
@@ -233,7 +243,7 @@ var _ = Describe("OpenClawInstance forcePaths (#500)", func() {
 				summarizeStatuses(pod.Status.ContainerStatuses))
 			return false
 		}, 10*time.Minute, 5*time.Second).Should(BeTrue(),
-			"new openclaw pod should be Running after restart")
+			"new openclaw pod should be Ready after restart")
 
 		// The contract: gateway.auth.token was under "gateway" (a forcePath),
 		// so init-config deleted the gateway subtree before deep-merging the
@@ -260,7 +270,11 @@ var _ = Describe("OpenClawInstance forcePaths (#500)", func() {
 			// Suppress unused-variable lint if the original token capture
 			// was useful only for the pre-restart assertion above.
 			_ = originalToken
-		}, 2*time.Minute, 5*time.Second).Should(Succeed())
+			// Five minutes, not two: kubectl exec fails with container not
+			// found while the container is being replaced, so the window has
+			// to outlast a restart cycle on a loaded runner rather than
+			// reporting a transient exec failure as a broken rebuild.
+		}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 		Expect(k8sClient.Delete(ctx, instance)).Should(Succeed())
 	})

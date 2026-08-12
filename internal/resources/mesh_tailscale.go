@@ -82,18 +82,13 @@ func (tailscaleProvider) BinPathPrefixes(_ *openclawv1alpha1.OpenClawInstance) [
 	return []string{TailscaleBinPath}
 }
 
+// EgressRules returns only the mesh-specific egress. Kubernetes API egress
+// (6443) is emitted once by buildEgressRules for any instance that needs it --
+// self-configure or a provider whose sidecar talks to the API -- so contributing
+// it here too would render the rule twice for a Tailscale + selfConfigure
+// instance.
 func (tailscaleProvider) EgressRules(_ *openclawv1alpha1.OpenClawInstance) []networkingv1.NetworkPolicyEgressRule {
 	return []networkingv1.NetworkPolicyEgressRule{
-		{
-			// containerboot manages the state Secret via the Kubernetes API.
-			// Port 6443 covers clusters where the API server listens on a
-			// non-standard port (e.g. K3s DNATs 443 -> 6443 before
-			// NetworkPolicy evaluation).
-			To: []networkingv1.NetworkPolicyPeer{},
-			Ports: []networkingv1.NetworkPolicyPort{
-				{Protocol: Ptr(corev1.ProtocolTCP), Port: Ptr(intstr.FromInt(6443))},
-			},
-		},
 		{
 			// STUN for NAT traversal and the WireGuard data plane.
 			To: []networkingv1.NetworkPolicyPeer{},

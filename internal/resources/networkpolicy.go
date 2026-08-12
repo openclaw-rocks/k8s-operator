@@ -268,12 +268,13 @@ func buildEgressRules(instance *openclawv1alpha1.OpenClawInstance) []networkingv
 		},
 	})
 
-	// Allow K8s API server egress when self-configure is enabled. Port 6443
-	// covers clusters where the API server listens on a non-standard port
-	// (e.g., K3s DNATs 443 -> 6443 before NetworkPolicy evaluation). A mesh
-	// provider that manages state via the K8s API contributes the same rule
-	// through MeshEgressRules.
-	if instance.Spec.SelfConfigure.Enabled {
+	// Allow K8s API server egress when self-configure is enabled, or when the
+	// mesh provider's sidecar manages its state via the API (Tailscale's
+	// containerboot does). Port 6443 covers clusters where the API server
+	// listens on a non-standard port (e.g., K3s DNATs 443 -> 6443 before
+	// NetworkPolicy evaluation). Emitted once here rather than also by the
+	// provider, so an instance needing it for both reasons gets one rule.
+	if instance.Spec.SelfConfigure.Enabled || MeshNeedsServiceAccountToken(instance) {
 		rules = append(rules, networkingv1.NetworkPolicyEgressRule{
 			To: []networkingv1.NetworkPolicyPeer{},
 			Ports: []networkingv1.NetworkPolicyPort{

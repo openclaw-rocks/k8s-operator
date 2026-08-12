@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 
 	openclawv1alpha1 "github.com/paperclipinc/openclaw-operator/api/v1alpha1"
 )
@@ -381,6 +382,53 @@ func TestBuildNetworkPolicy_TailscaleEgressUnchanged(t *testing.T) {
 		if !found {
 			t.Errorf("tailscale egress should still allow port %d", port)
 		}
+	}
+}
+
+// Kubernetes API egress is needed by self-configure and by Tailscale's
+// containerboot. Both reasons at once must still produce exactly one rule --
+// collecting provider egress behind the interface briefly emitted it twice.
+func TestBuildNetworkPolicy_K8sAPIEgressNotDuplicated(t *testing.T) {
+	count6443 := func(np *networkingv1.NetworkPolicy) int {
+		n := 0
+		for _, rule := range np.Spec.Egress {
+			for _, p := range rule.Ports {
+				if p.Port != nil && p.Port.IntValue() == 6443 {
+					n++
+				}
+			}
+		}
+		return n
+	}
+
+	both := newTestInstance("np-6443-both")
+	both.Spec.Tailscale.Enabled = true
+	both.Spec.SelfConfigure.Enabled = true
+	if got := count6443(BuildNetworkPolicy(both)); got != 1 {
+		t.Errorf("tailscale + selfConfigure: 6443 rules = %d, want 1", got)
+	}
+
+	tsOnly := newTestInstance("np-6443-ts")
+	tsOnly.Spec.Tailscale.Enabled = true
+	if got := count6443(BuildNetworkPolicy(tsOnly)); got != 1 {
+		t.Errorf("tailscale alone: 6443 rules = %d, want 1", got)
+	}
+
+	scOnly := newTestInstance("np-6443-sc")
+	scOnly.Spec.SelfConfigure.Enabled = true
+	if got := count6443(BuildNetworkPolicy(scOnly)); got != 1 {
+		t.Errorf("selfConfigure alone: 6443 rules = %d, want 1", got)
+	}
+
+	// NetBird needs no API access, so it contributes no 6443 rule.
+	nb := newNetBirdInstance("np-6443-nb")
+	if got := count6443(BuildNetworkPolicy(nb)); got != 0 {
+		t.Errorf("netbird alone: 6443 rules = %d, want 0", got)
+	}
+
+	none := newTestInstance("np-6443-none")
+	if got := count6443(BuildNetworkPolicy(none)); got != 0 {
+		t.Errorf("no provider: 6443 rules = %d, want 0", got)
 	}
 }
 

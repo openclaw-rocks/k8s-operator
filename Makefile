@@ -59,7 +59,12 @@ test: manifests generate fmt vet envtest ## Run tests.
 
 .PHONY: test-e2e
 test-e2e: ## Run end-to-end tests.
-	go test ./test/e2e/... -v -count=1
+# go test defaults to a 10 minute timeout for the WHOLE package. The suite
+# already runs 7-8 minutes on a healthy kind runner and has exceeded 10 on a
+# loaded one, where the binary is killed mid-spec and reports a goroutine dump
+# instead of the spec that was slow. The budget has to leave room for the
+# multi-minute pod-readiness waits these tests legitimately need.
+	go test ./test/e2e/... -v -count=1 -timeout 30m
 
 .PHONY: scorecard
 scorecard: operator-sdk ## Run operator-sdk scorecard tests.

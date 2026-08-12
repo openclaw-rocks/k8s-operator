@@ -235,6 +235,10 @@ jobs:
     name: E2E Tests
     needs: [lint, test, security-scan]
     runs-on: ubuntu-latest
+    # Bounded well above the go test -timeout in `make test-e2e` so the Go
+    # binary is what reports a hang, with the failing spec named, rather than
+    # the job being cut off with no test output at all.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -263,8 +267,10 @@ jobs:
         run: |
           docker pull docker.io/chromedp/headless-shell:stable
           kind load docker-image docker.io/chromedp/headless-shell:stable --name e2e-test
-          docker pull curlimages/curl
-          kind load docker-image curlimages/curl --name e2e-test
+          # Must match the reference the CDP spec requests exactly, or the
+          # pre-load is a no-op and the test pulls from the network mid-run.
+          docker pull docker.io/curlimages/curl:8.11.1
+          kind load docker-image docker.io/curlimages/curl:8.11.1 --name e2e-test
 
       - name: Install CRDs
         run: make install

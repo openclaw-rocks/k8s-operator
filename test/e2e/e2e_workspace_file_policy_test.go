@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -40,7 +41,10 @@ var _ = Describe("Workspace file update policy", func() {
 		interval = time.Second * 1
 	)
 
-	var namespace string
+	var (
+		namespace string
+		specNum   int
+	)
 
 	newInstance := func(name string) *openclawv1alpha1.OpenClawInstance {
 		return &openclawv1alpha1.OpenClawInstance{
@@ -60,7 +64,8 @@ var _ = Describe("Workspace file update policy", func() {
 		}
 	}
 
-	// initScript returns the rendered init container command for an instance.
+	// initScript returns the rendered seeding script from the init-config
+	// container, which carries it as the third element of Command ("sh -c <script>").
 	initScript := func(instance *openclawv1alpha1.OpenClawInstance) string {
 		sts := &appsv1.StatefulSet{}
 		Eventually(func() error {
@@ -71,12 +76,14 @@ var _ = Describe("Workspace file update policy", func() {
 		}, timeout, interval).Should(Succeed())
 
 		for _, ic := range sts.Spec.Template.Spec.InitContainers {
-			for _, arg := range ic.Args {
-				if arg != "" {
-					return arg
-				}
+			if ic.Name != "init-config" {
+				continue
 			}
+			Expect(ic.Command).To(HaveLen(3),
+				"expected the init-config container to run 'sh -c <script>', got %v", ic.Command)
+			return ic.Command[2]
 		}
+		Fail("init-config container not found in the pod spec")
 		return ""
 	}
 
@@ -84,7 +91,10 @@ var _ = Describe("Workspace file update policy", func() {
 		if os.Getenv("E2E_SKIP_RESOURCE_VALIDATION") == "true" {
 			Skip("Skipping resource validation in minimal mode")
 		}
-		namespace = "test-wsfile-" + time.Now().Format("20060102150405")
+		// Second granularity alone collides between specs that start within the
+		// same second, and namespace creation then fails with AlreadyExists.
+		specNum++
+		namespace = fmt.Sprintf("test-wsfile-%s-%d", time.Now().Format("20060102150405"), specNum)
 		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
 		Expect(k8sClient.Create(ctx, ns)).Should(Succeed())
 	})

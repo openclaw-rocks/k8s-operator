@@ -178,6 +178,94 @@ func TestValidateCreate_NoWarnNetworkPolicyEnabled(t *testing.T) {
 	}
 }
 
+// metricsIngress validation (#578)
+
+func TestValidateCreate_WarnsAllowedPeersWithoutPeers(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From: openclawv1alpha1.MetricsIngressFromAllowedPeers,
+	}
+
+	warnings, err := v.ValidateCreate(context.Background(), instance)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !containsWarning(warnings, "AllowedPeers") {
+		t.Fatalf("expected warning that no peer can scrape metrics, got: %v", warnings)
+	}
+}
+
+func TestValidateCreate_AllowedPeersWithPeersIsValid(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From:              openclawv1alpha1.MetricsIngressFromAllowedPeers,
+		AllowedNamespaces: []string{"monitoring"},
+	}
+
+	warnings, err := v.ValidateCreate(context.Background(), instance)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if containsWarning(warnings, "AllowedPeers") {
+		t.Fatalf("expected no AllowedPeers warning when peers are set, got: %v", warnings)
+	}
+}
+
+// Peers listed under a mode that ignores them would silently do nothing, so the
+// combination is rejected rather than accepted as a no-op.
+func TestValidateCreate_RejectsPeersWithoutAllowedPeersMode(t *testing.T) {
+	for _, mode := range []openclawv1alpha1.MetricsIngressFrom{
+		openclawv1alpha1.MetricsIngressFromSameNamespace,
+		openclawv1alpha1.MetricsIngressFromNone,
+	} {
+		v := &OpenClawInstanceValidator{}
+		instance := newTestInstance()
+		instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+			From:              mode,
+			AllowedNamespaces: []string{"monitoring"},
+		}
+
+		if _, err := v.ValidateCreate(context.Background(), instance); err == nil {
+			t.Errorf("from=%s with allowedNamespaces should be rejected", mode)
+		}
+	}
+}
+
+func TestValidateCreate_RejectsPodSelectorWithoutAllowedPeersMode(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From: openclawv1alpha1.MetricsIngressFromSameNamespace,
+		PodSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{"app.kubernetes.io/name": "prometheus"},
+		},
+	}
+
+	if _, err := v.ValidateCreate(context.Background(), instance); err == nil {
+		t.Error("podSelector without from=AllowedPeers should be rejected")
+	}
+}
+
+func TestValidateCreate_WarnsMetricsIngressWithMetricsDisabled(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Observability.Metrics.Enabled = ptr(false)
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From:              openclawv1alpha1.MetricsIngressFromAllowedPeers,
+		AllowedNamespaces: []string{"monitoring"},
+	}
+
+	warnings, err := v.ValidateCreate(context.Background(), instance)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !containsWarning(warnings, "metricsIngress") {
+		t.Fatalf("expected warning that no metrics ingress rule is generated, got: %v", warnings)
+	}
+}
+
 func TestValidateCreate_WarnsIngressWithoutTLS(t *testing.T) {
 	v := &OpenClawInstanceValidator{}
 	instance := newTestInstance()

@@ -1790,13 +1790,13 @@ func TestBuildNetworkPolicy_Default(t *testing.T) {
 		t.Errorf("ingress namespace selector = %v, want test-ns", nsSel.MatchLabels)
 	}
 
-	// Ingress ports - gateway proxy, canvas proxy, and metrics (enabled by default)
-	if len(firstIngress.Ports) != 3 {
-		t.Fatalf("expected 3 ingress ports, got %d", len(firstIngress.Ports))
+	// Ingress ports - gateway proxy and canvas proxy. Metrics live in their own
+	// rule so they can be restricted independently of application traffic (#578).
+	if len(firstIngress.Ports) != 2 {
+		t.Fatalf("expected 2 ingress ports, got %d", len(firstIngress.Ports))
 	}
 	assertNPPort(t, firstIngress.Ports, GatewayProxyPort)
 	assertNPPort(t, firstIngress.Ports, CanvasProxyPort)
-	assertNPPort(t, firstIngress.Ports, int(DefaultMetricsPort))
 
 	// Egress rules - DNS (UDP+TCP 53) and HTTPS (443)
 	if len(np.Spec.Egress) < 2 {
@@ -1846,14 +1846,14 @@ func TestBuildNetworkPolicy_CustomServicePorts(t *testing.T) {
 
 	np := BuildNetworkPolicy(instance)
 
-	// Same-namespace ingress rule should use custom ports + metrics (enabled by default)
+	// Same-namespace ingress rule should use the custom ports. Metrics are
+	// rendered in their own rule (#578).
 	firstIngress := np.Spec.Ingress[0]
-	if len(firstIngress.Ports) != 3 {
-		t.Fatalf("expected 3 ingress ports for custom service ports + metrics, got %d", len(firstIngress.Ports))
+	if len(firstIngress.Ports) != 2 {
+		t.Fatalf("expected 2 ingress ports for custom service ports, got %d", len(firstIngress.Ports))
 	}
 	assertNPPort(t, firstIngress.Ports, 3978)
 	assertNPPort(t, firstIngress.Ports, 50051)
-	assertNPPort(t, firstIngress.Ports, int(DefaultMetricsPort))
 }
 
 func TestBuildNetworkPolicy_CustomServicePortsWithTargetPort(t *testing.T) {
@@ -1865,12 +1865,11 @@ func TestBuildNetworkPolicy_CustomServicePortsWithTargetPort(t *testing.T) {
 	np := BuildNetworkPolicy(instance)
 
 	firstIngress := np.Spec.Ingress[0]
-	if len(firstIngress.Ports) != 2 {
-		t.Fatalf("expected 2 ingress ports (custom + metrics), got %d", len(firstIngress.Ports))
+	if len(firstIngress.Ports) != 1 {
+		t.Fatalf("expected 1 ingress port, got %d", len(firstIngress.Ports))
 	}
 	// NetworkPolicy should use targetPort (container port), not service port
 	assertNPPort(t, firstIngress.Ports, 3978)
-	assertNPPort(t, firstIngress.Ports, int(DefaultMetricsPort))
 }
 
 func TestBuildNetworkPolicy_CustomPortsApplyToAllRules(t *testing.T) {
@@ -1883,17 +1882,23 @@ func TestBuildNetworkPolicy_CustomPortsApplyToAllRules(t *testing.T) {
 
 	np := BuildNetworkPolicy(instance)
 
-	// 3 rules: same-ns, monitoring ns, CIDR
-	if len(np.Spec.Ingress) != 3 {
-		t.Fatalf("expected 3 ingress rules, got %d", len(np.Spec.Ingress))
+	// 4 rules: same-ns, monitoring ns, CIDR, and the separate metrics rule (#578)
+	if len(np.Spec.Ingress) != 4 {
+		t.Fatalf("expected 4 ingress rules, got %d", len(np.Spec.Ingress))
 	}
-	for i, rule := range np.Spec.Ingress {
-		if len(rule.Ports) != 2 {
-			t.Fatalf("rule %d: expected 2 ports (custom + metrics), got %d", i, len(rule.Ports))
+	// Every application peer gets the custom port and nothing else -- an
+	// application allowlist must not imply metrics access.
+	for i, rule := range np.Spec.Ingress[:3] {
+		if len(rule.Ports) != 1 {
+			t.Fatalf("rule %d: expected 1 custom port, got %d", i, len(rule.Ports))
 		}
 		assertNPPort(t, rule.Ports, 8080)
-		assertNPPort(t, rule.Ports, int(DefaultMetricsPort))
 	}
+	metricsRule := np.Spec.Ingress[3]
+	if len(metricsRule.Ports) != 1 {
+		t.Fatalf("expected 1 metrics port, got %d", len(metricsRule.Ports))
+	}
+	assertNPPort(t, metricsRule.Ports, int(DefaultMetricsPort))
 }
 
 func TestBuildNetworkPolicy_CustomCIDRs(t *testing.T) {
@@ -1908,9 +1913,9 @@ func TestBuildNetworkPolicy_CustomCIDRs(t *testing.T) {
 
 	np := BuildNetworkPolicy(instance)
 
-	// Should have 3 ingress rules: same-ns + 2 CIDRs
-	if len(np.Spec.Ingress) != 3 {
-		t.Fatalf("expected 3 ingress rules, got %d", len(np.Spec.Ingress))
+	// Should have 4 ingress rules: same-ns + 2 CIDRs + the metrics rule (#578)
+	if len(np.Spec.Ingress) != 4 {
+		t.Fatalf("expected 4 ingress rules, got %d", len(np.Spec.Ingress))
 	}
 
 	// Verify CIDR ingress rules
@@ -1967,9 +1972,9 @@ func TestBuildNetworkPolicy_AllowedNamespaces(t *testing.T) {
 
 	np := BuildNetworkPolicy(instance)
 
-	// Should have 3 ingress rules: same-ns + 2 allowed namespaces
-	if len(np.Spec.Ingress) != 3 {
-		t.Fatalf("expected 3 ingress rules, got %d", len(np.Spec.Ingress))
+	// Should have 4 ingress rules: same-ns + 2 allowed namespaces + metrics (#578)
+	if len(np.Spec.Ingress) != 4 {
+		t.Fatalf("expected 4 ingress rules, got %d", len(np.Spec.Ingress))
 	}
 
 	nsRule1 := np.Spec.Ingress[1]
@@ -2565,6 +2570,11 @@ func TestEnrichConfigWithOTelMetrics(t *testing.T) {
 	if otel["metrics"] != true {
 		t.Errorf("diagnostics.otel.metrics = %v, want true", otel["metrics"])
 	}
+	// The diagnostics-otel plugin gates on "enabled", so the operator-only
+	// path has to set it -- "metrics": true alone never started the exporter (#588).
+	if otel["enabled"] != true {
+		t.Errorf("diagnostics.otel.enabled = %v, want true", otel["enabled"])
+	}
 	expectedEndpoint := fmt.Sprintf("http://localhost:%d", OTelHTTPReceiverPort)
 	if otel["endpoint"] != expectedEndpoint {
 		t.Errorf("diagnostics.otel.endpoint = %v, want %s", otel["endpoint"], expectedEndpoint)
@@ -2587,6 +2597,101 @@ func TestEnrichConfigWithOTelMetrics_PreservesUserOverride(t *testing.T) {
 	otel := diag["otel"].(map[string]interface{})
 	if otel["endpoint"] != "http://my-collector:4318" {
 		t.Errorf("user-set endpoint should be preserved, got %v", otel["endpoint"])
+	}
+}
+
+// A partial diagnostics.otel block (the plugin gate set, no endpoint) used to
+// be treated as a complete override, leaving the rendered config with no
+// endpoint at all -- metrics only reached the sidecar via the OTLP library's
+// own default URL. The operator now fills in its own collector endpoint (#588).
+func TestEnrichConfigWithOTelMetrics_FillsEndpointInPartialBlock(t *testing.T) {
+	input := []byte(`{"diagnostics":{"otel":{"enabled":true}}}`)
+	out, err := enrichConfigWithOTelMetrics(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	otel := cfg["diagnostics"].(map[string]interface{})["otel"].(map[string]interface{})
+	expectedEndpoint := fmt.Sprintf("http://localhost:%d", OTelHTTPReceiverPort)
+	if otel["endpoint"] != expectedEndpoint {
+		t.Errorf("diagnostics.otel.endpoint = %v, want %s", otel["endpoint"], expectedEndpoint)
+	}
+	if otel["enabled"] != true {
+		t.Errorf("user-set enabled should be preserved, got %v", otel["enabled"])
+	}
+	if otel["metrics"] != true {
+		t.Errorf("diagnostics.otel.metrics = %v, want true", otel["metrics"])
+	}
+}
+
+// An explicit opt-out stays authoritative: the operator neither re-enables the
+// exporter nor wires up an endpoint behind the user's back (#588).
+func TestEnrichConfigWithOTelMetrics_PreservesExplicitDisable(t *testing.T) {
+	input := []byte(`{"diagnostics":{"otel":{"enabled":false}}}`)
+	out, err := enrichConfigWithOTelMetrics(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	otel := cfg["diagnostics"].(map[string]interface{})["otel"].(map[string]interface{})
+	if otel["enabled"] != false {
+		t.Errorf("explicit enabled=false should be preserved, got %v", otel["enabled"])
+	}
+	if _, hasEndpoint := otel["endpoint"]; hasEndpoint {
+		t.Errorf("no endpoint should be injected into an explicitly disabled block, got %v", otel["endpoint"])
+	}
+}
+
+// A non-object diagnostics.otel isn't something the merge understands, so it
+// is left exactly as the user wrote it rather than being clobbered.
+func TestEnrichConfigWithOTelMetrics_LeavesNonObjectUntouched(t *testing.T) {
+	input := []byte(`{"diagnostics":{"otel":"off"}}`)
+	out, err := enrichConfigWithOTelMetrics(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := cfg["diagnostics"].(map[string]interface{})["otel"]; got != "off" {
+		t.Errorf("diagnostics.otel = %v, want the original \"off\"", got)
+	}
+}
+
+// The rendered openclaw.json has to state the collector destination explicitly
+// so an operator upgrade that moves the receiver port is auditable (#588).
+func TestBuildConfigMap_PartialOTelBlockGetsEndpoint(t *testing.T) {
+	instance := newTestInstance("cm-otel-partial")
+	instance.Spec.Config.Raw = &openclawv1alpha1.RawConfig{
+		RawExtension: runtime.RawExtension{
+			Raw: []byte(`{"diagnostics":{"otel":{"enabled":true}}}`),
+		},
+	}
+
+	cm := BuildConfigMap(instance, "", nil)
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(cm.Data["openclaw.json"]), &parsed); err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	otel := parsed["diagnostics"].(map[string]interface{})["otel"].(map[string]interface{})
+	expectedEndpoint := fmt.Sprintf("http://localhost:%d", OTelHTTPReceiverPort)
+	if otel["endpoint"] != expectedEndpoint {
+		t.Errorf("rendered diagnostics.otel.endpoint = %v, want %s", otel["endpoint"], expectedEndpoint)
 	}
 }
 
@@ -11347,14 +11452,15 @@ func TestBuildNetworkPolicy_WebTerminalIngressPort(t *testing.T) {
 
 	np := BuildNetworkPolicy(instance)
 
-	// Default ingress rule should have 4 ports (gateway, canvas, web-terminal, metrics)
+	// Default ingress rule should have 3 ports (gateway, canvas, web-terminal).
+	// Metrics are rendered in a separate rule (#578).
 	if len(np.Spec.Ingress) == 0 {
 		t.Fatal("expected at least one ingress rule")
 	}
 
 	ports := np.Spec.Ingress[0].Ports
-	if len(ports) != 4 {
-		t.Fatalf("expected 4 ingress ports with web terminal, got %d", len(ports))
+	if len(ports) != 3 {
+		t.Fatalf("expected 3 ingress ports with web terminal, got %d", len(ports))
 	}
 
 	// Verify web-terminal port is present
@@ -11382,8 +11488,8 @@ func TestBuildNetworkPolicy_ChromiumIngressAndEgress(t *testing.T) {
 	}
 
 	ports := np.Spec.Ingress[0].Ports
-	if len(ports) != 4 {
-		t.Fatalf("expected 4 ingress ports with chromium (gateway, canvas, chromium, metrics), got %d", len(ports))
+	if len(ports) != 3 {
+		t.Fatalf("expected 3 ingress ports with chromium (gateway, canvas, chromium), got %d", len(ports))
 	}
 
 	foundChromiumIngress := false
@@ -11633,19 +11739,40 @@ func TestBuildNetworkPolicy_DefaultUsesProxyPorts(t *testing.T) {
 	}
 }
 
+// ruleHasPort reports whether an ingress rule allows the given port.
+func ruleHasPort(rule networkingv1.NetworkPolicyIngressRule, port int) bool {
+	for _, p := range rule.Ports {
+		if p.Port != nil && p.Port.IntValue() == port {
+			return true
+		}
+	}
+	return false
+}
+
+// metricsIngressRules returns the ingress rules that carry the metrics port.
+func metricsIngressRules(np *networkingv1.NetworkPolicy, metricsPort int) []networkingv1.NetworkPolicyIngressRule {
+	var out []networkingv1.NetworkPolicyIngressRule
+	for _, rule := range np.Spec.Ingress {
+		if ruleHasPort(rule, metricsPort) {
+			out = append(out, rule)
+		}
+	}
+	return out
+}
+
 func TestBuildNetworkPolicy_MetricsPortIncludedByDefault(t *testing.T) {
 	instance := newTestInstance("np-metrics")
 	np := BuildNetworkPolicy(instance)
 
-	ports := np.Spec.Ingress[0].Ports
-	found := false
-	for _, p := range ports {
-		if p.Port != nil && p.Port.IntValue() == int(DefaultMetricsPort) {
-			found = true
-		}
+	// Without a metricsIngress block the metrics port stays reachable from the
+	// instance's own namespace, matching the behavior from before #578.
+	rules := metricsIngressRules(np, int(DefaultMetricsPort))
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 metrics ingress rule, got %d", len(rules))
 	}
-	if !found {
-		t.Errorf("NetworkPolicy should allow metrics port %d when metrics are enabled (default)", DefaultMetricsPort)
+	sel := rules[0].From[0].NamespaceSelector
+	if sel == nil || sel.MatchLabels["kubernetes.io/metadata.name"] != instance.Namespace {
+		t.Errorf("metrics rule should allow the instance namespace, got %v", rules[0].From[0])
 	}
 }
 
@@ -11654,11 +11781,8 @@ func TestBuildNetworkPolicy_MetricsPortExcludedWhenDisabled(t *testing.T) {
 	instance.Spec.Observability.Metrics.Enabled = Ptr(false)
 	np := BuildNetworkPolicy(instance)
 
-	ports := np.Spec.Ingress[0].Ports
-	for _, p := range ports {
-		if p.Port != nil && p.Port.IntValue() == int(DefaultMetricsPort) {
-			t.Errorf("NetworkPolicy should NOT allow metrics port %d when metrics are disabled", DefaultMetricsPort)
-		}
+	if rules := metricsIngressRules(np, int(DefaultMetricsPort)); len(rules) != 0 {
+		t.Errorf("NetworkPolicy should NOT allow metrics port %d when metrics are disabled, got %d rule(s)", DefaultMetricsPort, len(rules))
 	}
 }
 
@@ -11667,15 +11791,8 @@ func TestBuildNetworkPolicy_CustomMetricsPort(t *testing.T) {
 	instance.Spec.Observability.Metrics.Port = Ptr(int32(8080))
 	np := BuildNetworkPolicy(instance)
 
-	ports := np.Spec.Ingress[0].Ports
-	found := false
-	for _, p := range ports {
-		if p.Port != nil && p.Port.IntValue() == 8080 {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("NetworkPolicy should allow custom metrics port 8080")
+	if rules := metricsIngressRules(np, 8080); len(rules) != 1 {
+		t.Errorf("NetworkPolicy should allow custom metrics port 8080, got %d rule(s)", len(rules))
 	}
 }
 
@@ -11686,42 +11803,156 @@ func TestBuildNetworkPolicy_MetricsPortWithCustomServicePorts(t *testing.T) {
 	}
 	np := BuildNetworkPolicy(instance)
 
-	ports := np.Spec.Ingress[0].Ports
-	foundCustom := false
-	foundMetrics := false
-	for _, p := range ports {
-		if p.Port != nil {
-			switch p.Port.IntValue() {
-			case 3978:
-				foundCustom = true
-			case int(DefaultMetricsPort):
-				foundMetrics = true
-			}
-		}
-	}
-	if !foundCustom {
+	if !ruleHasPort(np.Spec.Ingress[0], 3978) {
 		t.Error("NetworkPolicy should allow custom service port 3978")
 	}
-	if !foundMetrics {
-		t.Errorf("NetworkPolicy should allow metrics port %d even with custom service ports", DefaultMetricsPort)
+	if rules := metricsIngressRules(np, int(DefaultMetricsPort)); len(rules) != 1 {
+		t.Errorf("NetworkPolicy should allow metrics port %d even with custom service ports, got %d rule(s)", DefaultMetricsPort, len(rules))
 	}
 }
 
-func TestBuildNetworkPolicy_MetricsPortOnAllIngressRules(t *testing.T) {
-	instance := newTestInstance("np-metrics-all-rules")
+// The defect in #578: one port list was reused for every ingress peer, so an
+// application allowlist silently granted access to the unauthenticated
+// /metrics endpoint too. Application peers must now carry application ports only.
+func TestBuildNetworkPolicy_ApplicationPeersDoNotGetMetricsPort(t *testing.T) {
+	instance := newTestInstance("np-metrics-not-on-app-rules")
 	instance.Spec.Security.NetworkPolicy.AllowedIngressNamespaces = []string{"monitoring"}
+	instance.Spec.Security.NetworkPolicy.AllowedIngressCIDRs = []string{"10.0.0.0/8"}
 	np := BuildNetworkPolicy(instance)
 
+	// Rules 0-2 are the application peers (same-ns, monitoring, CIDR).
+	for i, rule := range np.Spec.Ingress[:3] {
+		if ruleHasPort(rule, int(DefaultMetricsPort)) {
+			t.Errorf("application ingress rule %d should not include metrics port %d", i, DefaultMetricsPort)
+		}
+	}
+}
+
+func TestBuildNetworkPolicy_MetricsIngressNone(t *testing.T) {
+	instance := newTestInstance("np-metrics-none")
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From: openclawv1alpha1.MetricsIngressFromNone,
+	}
+	np := BuildNetworkPolicy(instance)
+
+	if rules := metricsIngressRules(np, int(DefaultMetricsPort)); len(rules) != 0 {
+		t.Errorf("From=None should emit no metrics ingress rule, got %d", len(rules))
+	}
+	// Application traffic is unaffected.
+	if !ruleHasPort(np.Spec.Ingress[0], GatewayProxyPort) {
+		t.Error("application ingress should still allow the gateway proxy port")
+	}
+}
+
+func TestBuildNetworkPolicy_MetricsIngressAllowedPeers(t *testing.T) {
+	instance := newTestInstance("np-metrics-peers")
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From:              openclawv1alpha1.MetricsIngressFromAllowedPeers,
+		AllowedNamespaces: []string{"monitoring"},
+	}
+	np := BuildNetworkPolicy(instance)
+
+	rules := metricsIngressRules(np, int(DefaultMetricsPort))
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 metrics ingress rule, got %d", len(rules))
+	}
+	sel := rules[0].From[0].NamespaceSelector
+	if sel == nil || sel.MatchLabels["kubernetes.io/metadata.name"] != "monitoring" {
+		t.Errorf("metrics rule should allow the monitoring namespace, got %v", rules[0].From[0])
+	}
+	// The instance's own namespace must no longer reach the metrics port.
 	for i, rule := range np.Spec.Ingress {
-		found := false
-		for _, p := range rule.Ports {
-			if p.Port != nil && p.Port.IntValue() == int(DefaultMetricsPort) {
-				found = true
-			}
+		sel := rule.From[0].NamespaceSelector
+		if sel != nil && sel.MatchLabels["kubernetes.io/metadata.name"] == instance.Namespace &&
+			ruleHasPort(rule, int(DefaultMetricsPort)) {
+			t.Errorf("rule %d: same-namespace peers should not reach metrics under AllowedPeers", i)
 		}
-		if !found {
-			t.Errorf("ingress rule %d should include metrics port %d", i, DefaultMetricsPort)
-		}
+	}
+}
+
+func TestBuildNetworkPolicy_MetricsIngressAllowedPeersWithPodSelectorAndCIDR(t *testing.T) {
+	instance := newTestInstance("np-metrics-selector")
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From:              openclawv1alpha1.MetricsIngressFromAllowedPeers,
+		AllowedNamespaces: []string{"monitoring"},
+		AllowedCIDRs:      []string{"10.1.0.0/16"},
+		PodSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{"app.kubernetes.io/name": "prometheus"},
+		},
+	}
+	np := BuildNetworkPolicy(instance)
+
+	rules := metricsIngressRules(np, int(DefaultMetricsPort))
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 metrics ingress rules (namespace + CIDR), got %d", len(rules))
+	}
+
+	nsPeer := rules[0].From[0]
+	if nsPeer.PodSelector == nil || nsPeer.PodSelector.MatchLabels["app.kubernetes.io/name"] != "prometheus" {
+		t.Errorf("pod selector should narrow the namespace peer, got %v", nsPeer.PodSelector)
+	}
+
+	// A CIDR peer has no pod identity, so the selector must not be attached.
+	cidrPeer := rules[1].From[0]
+	if cidrPeer.IPBlock == nil || cidrPeer.IPBlock.CIDR != "10.1.0.0/16" {
+		t.Fatalf("expected the CIDR peer, got %v", cidrPeer)
+	}
+	if cidrPeer.PodSelector != nil {
+		t.Errorf("pod selector must not apply to CIDR peers, got %v", cidrPeer.PodSelector)
+	}
+}
+
+// AllowedPeers with nothing listed means nobody may scrape. An ingress rule with
+// an empty From would allow every peer, so no rule may be emitted at all.
+func TestBuildNetworkPolicy_MetricsIngressAllowedPeersEmptyEmitsNoRule(t *testing.T) {
+	instance := newTestInstance("np-metrics-peers-empty")
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From: openclawv1alpha1.MetricsIngressFromAllowedPeers,
+	}
+	np := BuildNetworkPolicy(instance)
+
+	if rules := metricsIngressRules(np, int(DefaultMetricsPort)); len(rules) != 0 {
+		t.Errorf("AllowedPeers with no peers should emit no metrics rule, got %d", len(rules))
+	}
+}
+
+// metricsIngress applies to the operator-managed metrics port even when the
+// application is exposed through custom Service ports.
+func TestBuildNetworkPolicy_MetricsIngressWithCustomServicePorts(t *testing.T) {
+	instance := newTestInstance("np-metrics-peers-custom")
+	instance.Spec.Networking.Service.Ports = []openclawv1alpha1.ServicePortSpec{
+		{Name: "http", Port: 3978},
+	}
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From:              openclawv1alpha1.MetricsIngressFromAllowedPeers,
+		AllowedNamespaces: []string{"monitoring"},
+	}
+	np := BuildNetworkPolicy(instance)
+
+	rules := metricsIngressRules(np, int(DefaultMetricsPort))
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 metrics ingress rule, got %d", len(rules))
+	}
+	if ruleHasPort(rules[0], 3978) {
+		t.Error("the metrics rule should not carry application ports")
+	}
+	if !ruleHasPort(np.Spec.Ingress[0], 3978) {
+		t.Error("application ingress should still allow the custom service port")
+	}
+}
+
+// From=None with metrics disabled is not a contradiction -- neither produces a rule.
+func TestBuildNetworkPolicy_MetricsIngressIgnoredWhenMetricsDisabled(t *testing.T) {
+	instance := newTestInstance("np-metrics-peers-disabled")
+	instance.Spec.Observability.Metrics.Enabled = Ptr(false)
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From:              openclawv1alpha1.MetricsIngressFromAllowedPeers,
+		AllowedNamespaces: []string{"monitoring"},
+	}
+	np := BuildNetworkPolicy(instance)
+
+	if rules := metricsIngressRules(np, int(DefaultMetricsPort)); len(rules) != 0 {
+		t.Errorf("no metrics rule should be emitted when metrics are disabled, got %d", len(rules))
 	}
 }
 

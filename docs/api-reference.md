@@ -528,6 +528,48 @@ _Appears in:_
 | `format` _string_ | Format is the log format | json | Enum: [json text] <br />Optional: \{\} <br /> |
 
 
+#### MetricsIngressFrom
+
+_Underlying type:_ _string_
+
+MetricsIngressFrom selects which peers may reach the metrics port
+
+
+
+_Appears in:_
+- [MetricsIngressSpec](#metricsingressspec)
+
+| Field | Description |
+| --- | --- |
+| `SameNamespace` | MetricsIngressFromSameNamespace allows the instance's own namespace (default)<br /> |
+| `AllowedPeers` | MetricsIngressFromAllowedPeers allows only the explicitly named namespaces and CIDRs<br /> |
+| `None` | MetricsIngressFromNone emits no metrics ingress rule<br /> |
+
+
+#### MetricsIngressSpec
+
+
+
+MetricsIngressSpec configures NetworkPolicy ingress for the metrics port.
+
+The /metrics endpoint is unauthenticated, so in a shared namespace every
+other workload could scrape it. Application allowlists
+(security.networkPolicy.allowedIngressNamespaces / allowedIngressCIDRs) no
+longer imply metrics access -- metrics peers are configured here instead.
+
+
+
+_Appears in:_
+- [NetworkingSpec](#networkingspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `from` _[MetricsIngressFrom](#metricsingressfrom)_ | From selects which peers may reach the metrics port.<br />SameNamespace (the default) allows the instance's own namespace, matching<br />the behavior from before this field existed. AllowedPeers restricts access<br />to the namespaces and CIDRs named below, which is the setting to use when<br />only a Prometheus workload should scrape. None emits no metrics ingress<br />rule at all, for setups where a sidecar or node agent collects locally.<br />None is not an absolute deny: Kubernetes NetworkPolicies are additive, so<br />another policy in the namespace can still grant access. | SameNamespace | Enum: [SameNamespace AllowedPeers None] <br />Optional: \{\} <br /> |
+| `allowedNamespaces` _string array_ | AllowedNamespaces lists namespaces allowed to reach the metrics port when<br />From is AllowedPeers. |  | Optional: \{\} <br /> |
+| `allowedCIDRs` _string array_ | AllowedCIDRs lists IP ranges allowed to reach the metrics port when From<br />is AllowedPeers, for collectors that live outside the cluster. |  | Optional: \{\} <br /> |
+| `podSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#labelselector-v1-meta)_ | PodSelector further narrows the namespace peers to specific pods, e.g. the<br />Prometheus workload itself. It applies only to namespace peers, never to<br />CIDR peers, and is ignored unless From is AllowedPeers. |  | Optional: \{\} <br /> |
+
+
 #### MetricsSpec
 
 
@@ -585,6 +627,7 @@ _Appears in:_
 | `service` _[ServiceSpec](#servicespec)_ | Service configures the Kubernetes Service |  | Optional: \{\} <br /> |
 | `ingress` _[IngressSpec](#ingressspec)_ | Ingress configures the Kubernetes Ingress |  | Optional: \{\} <br /> |
 | `httpRoute` _[HTTPRouteSpec](#httproutespec)_ | HTTPRoute configures a Gateway API HTTPRoute.<br />This is an alternative to Ingress for clusters using the Gateway API<br />(gateway.networking.k8s.io). The Gateway API CRDs must be installed. |  | Optional: \{\} <br /> |
+| `metricsIngress` _[MetricsIngressSpec](#metricsingressspec)_ | MetricsIngress controls who may reach the metrics port in the generated<br />NetworkPolicy, independently of application traffic. When unset, the<br />metrics port stays reachable from the instance's own namespace, which is<br />the pre-existing behavior. |  | Optional: \{\} <br /> |
 
 
 #### ObservabilitySpec

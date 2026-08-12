@@ -1772,12 +1772,40 @@ func (r *OpenClawInstanceReconciler) reconcileTraefikBasicAuthMiddleware(ctx con
 	return nil
 }
 
-// reconcileServiceMonitor reconciles the ServiceMonitor for Prometheus
+// reconcileServiceMonitor reconciles the ServiceMonitor for Prometheus.
+// It is built as an unstructured object so the Prometheus Operator Go module is
+// not a build dependency. When disabled (or unset), any existing ServiceMonitor
+// is deleted so a rollback doesn't leave a stale scrape target behind (#589).
+// A ServiceMonitor also requires metrics to be enabled -- without the metrics
+// endpoint it would point Prometheus at a target that serves nothing. If the
+// Prometheus Operator CRDs are not installed, reconciliation is skipped.
 func (r *OpenClawInstanceReconciler) reconcileServiceMonitor(ctx context.Context, instance *openclawv1alpha1.OpenClawInstance) error {
-	// Check if ServiceMonitor is enabled
-	if instance.Spec.Observability.Metrics.ServiceMonitor == nil ||
-		instance.Spec.Observability.Metrics.ServiceMonitor.Enabled == nil ||
-		!*instance.Spec.Observability.Metrics.ServiceMonitor.Enabled {
+	requested := instance.Spec.Observability.Metrics.ServiceMonitor != nil &&
+		instance.Spec.Observability.Metrics.ServiceMonitor.Enabled != nil &&
+		*instance.Spec.Observability.Metrics.ServiceMonitor.Enabled
+
+	// A ServiceMonitor without a metrics endpoint scrapes nothing, so the
+	// combination is surfaced as a status condition instead of silently
+	// creating a target that can never return data.
+	metricsEnabled := resources.IsMetricsEnabled(instance)
+
+	if !requested || !metricsEnabled {
+		if err := r.deleteServiceMonitor(ctx, instance); err != nil {
+			return err
+		}
+		instance.Status.ManagedResources.ServiceMonitor = ""
+
+		if requested && !metricsEnabled {
+			meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+				Type:    openclawv1alpha1.ConditionTypeServiceMonitorReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  "MetricsDisabled",
+				Message: "spec.observability.metrics.serviceMonitor.enabled requires spec.observability.metrics.enabled",
+			})
+			return nil
+		}
+
+		meta.RemoveStatusCondition(&instance.Status.Conditions, openclawv1alpha1.ConditionTypeServiceMonitorReady)
 		return nil
 	}
 
@@ -1806,7 +1834,41 @@ func (r *OpenClawInstanceReconciler) reconcileServiceMonitor(ctx context.Context
 		sm.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 		return nil
 	})
-	return err
+	if meta.IsNoMatchError(err) {
+		// Prometheus Operator CRDs not installed - skip silently
+		meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+			Type:    openclawv1alpha1.ConditionTypeServiceMonitorReady,
+			Status:  metav1.ConditionFalse,
+			Reason:  "PrometheusOperatorNotInstalled",
+			Message: "Prometheus Operator CRDs (monitoring.coreos.com) are not installed",
+		})
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	instance.Status.ManagedResources.ServiceMonitor = sm.GetName()
+	meta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
+		Type:    openclawv1alpha1.ConditionTypeServiceMonitorReady,
+		Status:  metav1.ConditionTrue,
+		Reason:  "ServiceMonitorReconciled",
+		Message: "Prometheus ServiceMonitor reconciled successfully",
+	})
+	return nil
+}
+
+// deleteServiceMonitor removes the operator-owned ServiceMonitor. A missing
+// object or an uninstalled Prometheus Operator are both no-ops.
+func (r *OpenClawInstanceReconciler) deleteServiceMonitor(ctx context.Context, instance *openclawv1alpha1.OpenClawInstance) error {
+	existing := &unstructured.Unstructured{}
+	existing.SetGroupVersionKind(resources.ServiceMonitorGVK())
+	existing.SetName(resources.ServiceMonitorName(instance))
+	existing.SetNamespace(instance.Namespace)
+	if err := r.Delete(ctx, existing); err != nil && !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
+		return err
+	}
+	return nil
 }
 
 // reconcilePrometheusRule reconciles the PrometheusRule for alerting
@@ -2030,9 +2092,17 @@ func (r *OpenClawInstanceReconciler) findInstancesForSecret(ctx context.Context,
 	return requests
 }
 
+// gvkInstalled reports whether the cluster serves the given GroupVersionKind.
+// Watching a kind whose CRD is absent fails the manager at startup, so optional
+// integrations (Prometheus Operator, Gateway API) have to be probed first.
+func gvkInstalled(mgr ctrl.Manager, gvk schema.GroupVersionKind) bool {
+	_, err := mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
+	return err == nil
+}
+
 // SetupWithManager sets up the controller with the Manager
 func (r *OpenClawInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&openclawv1alpha1.OpenClawInstance{}).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&appsv1.Deployment{}). // temporary: watch legacy Deployments during migration
@@ -2051,8 +2121,21 @@ func (r *OpenClawInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&autoscalingv2.HorizontalPodAutoscaler{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findInstancesForSecret)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.findInstancesForConfigMap)).
-		Watches(&openclawv1alpha1.OpenClawClusterDefaults{}, handler.EnqueueRequestsFromMapFunc(r.findInstancesForClusterDefaults)).
-		Complete(r)
+		Watches(&openclawv1alpha1.OpenClawClusterDefaults{}, handler.EnqueueRequestsFromMapFunc(r.findInstancesForClusterDefaults))
+
+	// Owning the ServiceMonitor makes out-of-band deletion or drift enqueue the
+	// parent instance, so the child converges back instead of staying broken
+	// until the next resync (#589). Only wired when the Prometheus Operator CRDs
+	// are present -- otherwise the watch would fail the manager at startup. An
+	// operator installed later needs a restart to pick this up.
+	smGVK := resources.ServiceMonitorGVK()
+	if gvkInstalled(mgr, smGVK) {
+		sm := &unstructured.Unstructured{}
+		sm.SetGroupVersionKind(smGVK)
+		builder = builder.Owns(sm)
+	}
+
+	return builder.Complete(r)
 }
 
 // findInstancesForClusterDefaults enqueues every OpenClawInstance in the

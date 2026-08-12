@@ -5330,6 +5330,95 @@ spec:
                           type: object
                         type: array
                     type: object
+                  metricsIngress:
+                    description: |-
+                      MetricsIngress controls who may reach the metrics port in the generated
+                      NetworkPolicy, independently of application traffic. When unset, the
+                      metrics port stays reachable from the instance's own namespace, which is
+                      the pre-existing behavior.
+                    properties:
+                      allowedCIDRs:
+                        description: |-
+                          AllowedCIDRs lists IP ranges allowed to reach the metrics port when From
+                          is AllowedPeers, for collectors that live outside the cluster.
+                        items:
+                          type: string
+                        type: array
+                      allowedNamespaces:
+                        description: |-
+                          AllowedNamespaces lists namespaces allowed to reach the metrics port when
+                          From is AllowedPeers.
+                        items:
+                          type: string
+                        type: array
+                      from:
+                        default: SameNamespace
+                        description: |-
+                          From selects which peers may reach the metrics port.
+
+                          SameNamespace (the default) allows the instance's own namespace, matching
+                          the behavior from before this field existed. AllowedPeers restricts access
+                          to the namespaces and CIDRs named below, which is the setting to use when
+                          only a Prometheus workload should scrape. None emits no metrics ingress
+                          rule at all, for setups where a sidecar or node agent collects locally.
+
+                          None is not an absolute deny: Kubernetes NetworkPolicies are additive, so
+                          another policy in the namespace can still grant access.
+                        enum:
+                        - SameNamespace
+                        - AllowedPeers
+                        - None
+                        type: string
+                      podSelector:
+                        description: |-
+                          PodSelector further narrows the namespace peers to specific pods, e.g. the
+                          Prometheus workload itself. It applies only to namespace peers, never to
+                          CIDR peers, and is ignored unless From is AllowedPeers.
+                        properties:
+                          matchExpressions:
+                            description: matchExpressions is a list of label selector
+                              requirements. The requirements are ANDed.
+                            items:
+                              description: |-
+                                A label selector requirement is a selector that contains values, a key, and an operator that
+                                relates the key and values.
+                              properties:
+                                key:
+                                  description: key is the label key that the selector
+                                    applies to.
+                                  type: string
+                                operator:
+                                  description: |-
+                                    operator represents a key's relationship to a set of values.
+                                    Valid operators are In, NotIn, Exists and DoesNotExist.
+                                  type: string
+                                values:
+                                  description: |-
+                                    values is an array of string values. If the operator is In or NotIn,
+                                    the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                    the values array must be empty. This array is replaced during a strategic
+                                    merge patch.
+                                  items:
+                                    type: string
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                              required:
+                              - key
+                              - operator
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                              map is equivalent to an element of matchExpressions, whose key field is "key", the
+                              operator is "In", and the values array contains only "value". The requirements are ANDed.
+                            type: object
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
                   service:
                     description: Service configures the Kubernetes Service
                     properties:
@@ -9960,6 +10049,9 @@ spec:
                     type: string
                   serviceAccount:
                     description: ServiceAccount is the name of the managed ServiceAccount
+                    type: string
+                  serviceMonitor:
+                    description: ServiceMonitor is the name of the managed ServiceMonitor
                     type: string
                   statefulSet:
                     description: StatefulSet is the name of the managed StatefulSet

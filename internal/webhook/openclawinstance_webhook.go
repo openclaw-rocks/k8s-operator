@@ -137,6 +137,34 @@ func (v *OpenClawInstanceValidator) validate(instance *openclawv1alpha1.OpenClaw
 		warnings = append(warnings, "NetworkPolicy is disabled - pods will have unrestricted network access")
 	}
 
+	// 3b. Validate metrics ingress restrictions (#578). Peers listed under a mode
+	// that ignores them are almost always a mistake, and AllowedPeers with no
+	// peers at all silently makes the metrics endpoint unreachable.
+	if mi := instance.Spec.Networking.MetricsIngress; mi != nil {
+		hasPeers := len(mi.AllowedNamespaces) > 0 || len(mi.AllowedCIDRs) > 0
+		switch mi.From {
+		case openclawv1alpha1.MetricsIngressFromAllowedPeers:
+			if !hasPeers {
+				warnings = append(warnings, "metricsIngress.from is AllowedPeers but no allowedNamespaces or allowedCIDRs are set - no peer will be able to scrape metrics")
+			}
+		case openclawv1alpha1.MetricsIngressFromNone:
+			if hasPeers {
+				return nil, fmt.Errorf("metricsIngress.allowedNamespaces/allowedCIDRs are set but from is None - use from: AllowedPeers to apply them")
+			}
+		default:
+			if hasPeers {
+				return nil, fmt.Errorf("metricsIngress.allowedNamespaces/allowedCIDRs require from: AllowedPeers (got %q)", mi.From)
+			}
+			if mi.PodSelector != nil {
+				return nil, fmt.Errorf("metricsIngress.podSelector requires from: AllowedPeers (got %q)", mi.From)
+			}
+		}
+
+		if !resources.IsMetricsEnabled(instance) && mi.From != openclawv1alpha1.MetricsIngressFromNone {
+			warnings = append(warnings, "metricsIngress is configured but spec.observability.metrics.enabled is false - no metrics ingress rule is generated")
+		}
+	}
+
 	// 4. Warn if Ingress is enabled without TLS
 	if instance.Spec.Networking.Ingress.Enabled {
 		if len(instance.Spec.Networking.Ingress.TLS) == 0 {

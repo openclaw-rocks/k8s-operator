@@ -650,6 +650,48 @@ All keys in the referenced ConfigMap are written as files into the workspace dir
 
 **Merge priority** (highest wins): operator-injected files > inline `initialFiles` > external `configMapRef` > skill packs.
 
+#### File update policy
+
+Workspace files are **seed-once** by default: once a destination exists on persistent storage, later source changes never replace it. That is correct for runtime-owned state the agent writes to, and wrong for files a Git source should keep converging (`AGENTS.md`, `BOUNDARIES.md`, runbooks, policy files).
+
+`fileUpdatePolicy` makes that choice explicit, per workspace or per file:
+
+```yaml
+spec:
+  workspace:
+    fileUpdatePolicy: CreateOnly     # default for this workspace
+    configMapRef:
+      name: main-workspace
+    managedFiles:
+      - path: AGENTS.md              # updatePolicy defaults to Replace
+      - path: docs/BOUNDARIES.md
+        updatePolicy: Replace
+      - path: STATE.md               # pin one file back to seed-once
+        updatePolicy: CreateOnly
+    additionalWorkspaces:
+      - name: print
+        configMapRef:
+          name: print-workspace
+        fileUpdatePolicy: Replace    # inherits the top-level default when unset
+```
+
+`CreateOnly` (the default) keeps the existing behavior. `Replace` makes a file converge to its source.
+
+**What `Replace` does with local edits.** The operator records the hash of the content it last applied, in a marker under `/data/.workspace-managed/`. A file is rewritten only when that hash moves — that is, when the *source* genuinely changes. An edit made in the running workspace therefore survives until the next real source change, rather than being wiped on every restart. `status.managedResources.workspaceFiles` reports the resolved policy and current source hash per path, so `kubectl get openclawinstance <name> -o yaml` shows why a file was or was not rewritten.
+
+Guarantees for `Replace`:
+
+- only explicitly declared files are replaced; a workspace directory is never recursively replaced or pruned
+- a destination is never deleted because a source key was removed
+- symlink and non-regular destinations are refused, never followed
+- writes use a temp file plus atomic rename, with deterministic permissions (`0644`)
+- absolute paths and `..` traversal are rejected by the CRD schema and the validating webhook
+- a path listed in `managedFiles` is managed even if no source provides it yet, so adding it to a `configMapRef` later takes effect without a CR change
+
+Listing a path in `managedFiles` without an `updatePolicy` means `Replace` — listing it is an explicit ownership statement. An `additionalWorkspaces[].fileUpdatePolicy` that is unset inherits the top-level default rather than defaulting independently, so the two cannot drift apart.
+
+Operator-injected files (`ENVIRONMENT.md`, `BOOTSTRAP.md`, self-configure files) and skill-pack files are unaffected by this setting -- they have their own lifecycles (`bootstrap.enabled` and `skillPackUpdatePolicy`).
+
 **Disable operator-managed `BOOTSTRAP.md`:**
 
 `BOOTSTRAP.md` is seeded on first boot to guide first-run agent onboarding (identity, user preferences, persona). OpenClaw deletes the file after applying it, so on every pod restart or config change the init container would re-copy it and the agent would re-run bootstrap. Opt out once bootstrap is done:
@@ -724,7 +766,7 @@ spec:
               id: "123456789"        # bind to a specific channel
 ```
 
-Each additional workspace supports the same `configMapRef`, `initialFiles`, and `initialDirectories` as the default workspace, plus a `skills` list for workspace-scoped skill installation (see [Skill packs](#skill-packs)). Operator-injected `ENVIRONMENT.md` is included; `BOOTSTRAP.md` is not (only the default agent runs onboarding). Max 10 additional workspaces.
+Each additional workspace supports the same `configMapRef`, `initialFiles`, `initialDirectories`, `fileUpdatePolicy`, and `managedFiles` as the default workspace, plus a `skills` list for workspace-scoped skill installation (see [Skill packs](#skill-packs)). Operator-injected `ENVIRONMENT.md` is included; `BOOTSTRAP.md` is not (only the default agent runs onboarding). Max 10 additional workspaces.
 
 > **Seed-once behavior:** Workspace files (both default and additional) are only written on first boot when they don't already exist on the PVC. If an agent modifies its own SOUL.md or AGENT.md at runtime, those changes persist across pod restarts and are never overwritten by the ConfigMap content. To re-seed a file, delete it from the PVC first.
 

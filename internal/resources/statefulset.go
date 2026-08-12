@@ -762,6 +762,13 @@ func BuildInitScript(instance *openclawv1alpha1.OpenClawInstance, externalWorksp
 
 	ws := instance.Spec.Workspace
 
+	// Replace-managed workspace files converge to their source instead of being
+	// seeded once (#576). The helper is emitted once, before any workspace
+	// handling, and only when some workspace actually declares Replace.
+	if WorkspaceHasReplaceFiles(ws) {
+		lines = append(lines, managedFileApplyFunc)
+	}
+
 	// 2. Create workspace directories (idempotent)
 	if ws != nil {
 		// Sort for deterministic output
@@ -816,6 +823,10 @@ func BuildInitScript(instance *openclawv1alpha1.OpenClawInstance, externalWorksp
 
 		// Ensure the workspace directory exists (may not on first run with emptyDir)
 		lines = append(lines, "mkdir -p /data/workspace")
+
+		// Source hashes for Replace-managed files in the default workspace (#576).
+		wsSources := workspaceReplaceSources(instance, externalWorkspaceFiles)
+
 		// Sort keys for deterministic output
 		sorted := make([]string, 0, len(flatFiles))
 		for name := range flatFiles {
@@ -824,6 +835,10 @@ func BuildInitScript(instance *openclawv1alpha1.OpenClawInstance, externalWorksp
 		sort.Strings(sorted)
 		for _, name := range sorted {
 			q := shellQuote(name)
+			if hash, ok := wsSources[name]; ok {
+				lines = append(lines, managedFileApplyLine(name, "/data/workspace", "", name, hash))
+				continue
+			}
 			lines = append(lines, fmt.Sprintf("[ -f /data/workspace/%s ] || cp /workspace-init/%s /data/workspace/%s", q, q, q))
 		}
 
@@ -831,8 +846,12 @@ func BuildInitScript(instance *openclawv1alpha1.OpenClawInstance, externalWorksp
 		sort.Strings(nestedUserPaths)
 		for _, wsPath := range nestedUserPaths {
 			cmKey := SkillPackCMKey(wsPath)
+			lines = append(lines, fmt.Sprintf("mkdir -p /data/workspace/%s", shellQuote(path.Dir(wsPath))))
+			if hash, ok := wsSources[wsPath]; ok {
+				lines = append(lines, managedFileApplyLine(cmKey, "/data/workspace", "", wsPath, hash))
+				continue
+			}
 			lines = append(lines,
-				fmt.Sprintf("mkdir -p /data/workspace/%s", shellQuote(path.Dir(wsPath))),
 				fmt.Sprintf("[ -f /data/workspace/%s ] || cp /workspace-init/%s /data/workspace/%s",
 					shellQuote(wsPath), shellQuote(cmKey), shellQuote(wsPath)))
 		}
@@ -899,6 +918,9 @@ func BuildInitScript(instance *openclawv1alpha1.OpenClawInstance, externalWorksp
 			// Operator-injected ENVIRONMENT.md
 			flatNames["ENVIRONMENT.md"] = true
 
+			// Replace-managed files for this workspace (#576).
+			awSources := additionalWorkspaceReplaceSources(instance, &aw, additionalExternalFiles[aw.Name])
+
 			// Seed flat files (only if not present)
 			sorted := make([]string, 0, len(flatNames))
 			for name := range flatNames {
@@ -907,6 +929,10 @@ func BuildInitScript(instance *openclawv1alpha1.OpenClawInstance, externalWorksp
 			sort.Strings(sorted)
 			for _, name := range sorted {
 				cmKey := AdditionalWorkspaceCMKey(aw.Name, name)
+				if hash, ok := awSources[name]; ok {
+					lines = append(lines, managedFileApplyLine(cmKey, "/data/"+wsDir, aw.Name, name, hash))
+					continue
+				}
 				lines = append(lines, fmt.Sprintf("[ -f /data/%s/%s ] || cp /workspace-init/%s /data/%s/%s",
 					shellQuote(wsDir), shellQuote(name),
 					shellQuote(cmKey),
@@ -917,8 +943,12 @@ func BuildInitScript(instance *openclawv1alpha1.OpenClawInstance, externalWorksp
 			sort.Strings(nestedAWPaths)
 			for _, wsPath := range nestedAWPaths {
 				cmKey := AdditionalWorkspaceCMKey(aw.Name, SkillPackCMKey(wsPath))
+				lines = append(lines, fmt.Sprintf("mkdir -p /data/%s/%s", shellQuote(wsDir), shellQuote(path.Dir(wsPath))))
+				if hash, ok := awSources[wsPath]; ok {
+					lines = append(lines, managedFileApplyLine(cmKey, "/data/"+wsDir, aw.Name, wsPath, hash))
+					continue
+				}
 				lines = append(lines,
-					fmt.Sprintf("mkdir -p /data/%s/%s", shellQuote(wsDir), shellQuote(path.Dir(wsPath))),
 					fmt.Sprintf("[ -f /data/%s/%s ] || cp /workspace-init/%s /data/%s/%s",
 						shellQuote(wsDir), shellQuote(wsPath),
 						shellQuote(cmKey),

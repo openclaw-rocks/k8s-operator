@@ -1058,6 +1058,11 @@ func (r *OpenClawInstanceReconciler) reconcileWorkspaceConfigMap(ctx context.Con
 		})
 	}
 
+	// Report the resolved update policy and applied source hash per managed
+	// file, so it is visible from the CR why a file was or was not rewritten (#576).
+	instance.Status.ManagedResources.WorkspaceFiles = resources.ManagedWorkspaceFileStatuses(
+		instance, resolved.defaultFiles, resolved.additionalFiles)
+
 	desired := resources.BuildWorkspaceConfigMap(instance, resolved.defaultFiles, resolved.additionalFiles, skillPacks)
 
 	if desired == nil {

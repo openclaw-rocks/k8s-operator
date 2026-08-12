@@ -2180,3 +2180,78 @@ func TestValidateCreate_AdditionalWorkspaceSkillsInvalidName(t *testing.T) {
 		t.Errorf("expected invalid character error, got: %v", err)
 	}
 }
+
+// managedFiles path validation (#576). These paths are destinations the
+// operator writes to, so escaping the workspace root must be rejected.
+
+func TestValidateCreate_RejectsAbsoluteManagedFilePath(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Workspace = &openclawv1alpha1.WorkspaceSpec{
+		ManagedFiles: []openclawv1alpha1.ManagedWorkspaceFile{{Path: "/etc/passwd"}},
+	}
+
+	if _, err := v.ValidateCreate(context.Background(), instance); err == nil {
+		t.Error("an absolute managedFiles path should be rejected")
+	}
+}
+
+func TestValidateCreate_RejectsTraversalManagedFilePath(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Workspace = &openclawv1alpha1.WorkspaceSpec{
+		ManagedFiles: []openclawv1alpha1.ManagedWorkspaceFile{{Path: "../escape.md"}},
+	}
+
+	if _, err := v.ValidateCreate(context.Background(), instance); err == nil {
+		t.Error("a traversing managedFiles path should be rejected")
+	}
+}
+
+func TestValidateCreate_RejectsDuplicateManagedFilePath(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Workspace = &openclawv1alpha1.WorkspaceSpec{
+		ManagedFiles: []openclawv1alpha1.ManagedWorkspaceFile{
+			{Path: "AGENTS.md", UpdatePolicy: openclawv1alpha1.WorkspaceFileUpdatePolicyReplace},
+			{Path: "AGENTS.md", UpdatePolicy: openclawv1alpha1.WorkspaceFileUpdatePolicyCreateOnly},
+		},
+	}
+
+	if _, err := v.ValidateCreate(context.Background(), instance); err == nil {
+		t.Error("duplicate managedFiles paths are ambiguous and should be rejected")
+	}
+}
+
+func TestValidateCreate_RejectsBadManagedFilePathInAdditionalWorkspace(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Workspace = &openclawv1alpha1.WorkspaceSpec{
+		AdditionalWorkspaces: []openclawv1alpha1.AdditionalWorkspace{
+			{
+				Name:         "print",
+				ManagedFiles: []openclawv1alpha1.ManagedWorkspaceFile{{Path: "../../escape.md"}},
+			},
+		},
+	}
+
+	if _, err := v.ValidateCreate(context.Background(), instance); err == nil {
+		t.Error("an escaping managedFiles path in an additional workspace should be rejected")
+	}
+}
+
+func TestValidateCreate_AcceptsValidManagedFiles(t *testing.T) {
+	v := &OpenClawInstanceValidator{}
+	instance := newTestInstance()
+	instance.Spec.Workspace = &openclawv1alpha1.WorkspaceSpec{
+		FileUpdatePolicy: openclawv1alpha1.WorkspaceFileUpdatePolicyReplace,
+		ManagedFiles: []openclawv1alpha1.ManagedWorkspaceFile{
+			{Path: "AGENTS.md"},
+			{Path: "docs/BOUNDARIES.md", UpdatePolicy: openclawv1alpha1.WorkspaceFileUpdatePolicyReplace},
+		},
+	}
+
+	if _, err := v.ValidateCreate(context.Background(), instance); err != nil {
+		t.Errorf("valid managedFiles should be accepted, got %v", err)
+	}
+}

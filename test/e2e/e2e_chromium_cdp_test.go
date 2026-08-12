@@ -398,29 +398,45 @@ var _ = Describe("Chromium CDP Functional Tests", Ordered, func() {
 			"CDP headless Service should have at least one endpoint address")
 
 		By(fmt.Sprintf("Running curl from a temporary pod to %s", cdpURL))
-		// Chrome's DevTools HTTP server returns 500 for requests with long
-		// Host headers (like Kubernetes service DNS names). Override the
-		// Host header to localhost so Chrome handles the request correctly.
-		cmd := exec.Command("kubectl", "run", testPodName,
-			"--rm", "-i",
-			"--restart=Never",
-			"--timeout=60s",
-			"--namespace", namespace,
-			"--image=curlimages/curl",
-			"--", "curl", "-sf", "--max-time", "10",
-			"-H", "Host: localhost",
-			cdpURL,
-		)
+		// The endpoint gate above only proves the pod is Ready -- Chrome's
+		// DevTools HTTP server may still be starting, so the first attempt can
+		// legitimately fail. Retry rather than failing the spec on a race (#585).
+		//
+		// -sS keeps the progress meter quiet but still prints transport errors,
+		// and -f is deliberately absent: with it, a non-2xx produced an empty
+		// body and the assertion reported a missing webSocketDebuggerUrl when
+		// the real cause was an HTTP error. The status code is captured
+		// separately so a failure says what actually happened.
+		var outputStr string
+		attempt := 0
+		Eventually(func() string {
+			attempt++
+			// Chrome's DevTools HTTP server returns 500 for requests with long
+			// Host headers (like Kubernetes service DNS names). Override the
+			// Host header to localhost so Chrome handles the request correctly.
+			cmd := exec.Command("kubectl", "run", fmt.Sprintf("%s-%d", testPodName, attempt),
+				"--rm", "-i",
+				"--restart=Never",
+				"--timeout=60s",
+				"--namespace", namespace,
+				// Fully qualified: short names are ambiguous under CRI-O short
+				// name enforcing, same reason as #562.
+				"--image=docker.io/curlimages/curl:8.11.1",
+				"--", "curl", "-sS", "--max-time", "10",
+				"-w", "\nHTTP_STATUS:%{http_code}\n",
+				"-H", "Host: localhost",
+				cdpURL,
+			)
 
-		output, err := cmd.CombinedOutput()
-		outputStr := string(output)
-
-		GinkgoWriter.Printf("kubectl run output: %s\n", outputStr)
-
-		Expect(err).NotTo(HaveOccurred(),
-			"curl to CDP service should succeed, output: %s", outputStr)
-		Expect(outputStr).To(ContainSubstring("webSocketDebuggerUrl"),
+			output, err := cmd.CombinedOutput()
+			outputStr = string(output)
+			GinkgoWriter.Printf("kubectl run output (err=%v): %s\n", err, outputStr)
+			return outputStr
+		}, 90*time.Second, 5*time.Second).Should(ContainSubstring("webSocketDebuggerUrl"),
 			"response from CDP headless Service should contain webSocketDebuggerUrl")
+
+		Expect(outputStr).To(ContainSubstring("HTTP_STATUS:200"),
+			"CDP endpoint should return 200, output: %s", outputStr)
 	})
 })
 

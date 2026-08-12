@@ -414,13 +414,14 @@ func (r *OpenClawInstanceReconciler) reconcileResources(ctx context.Context, ins
 	}
 	logger.V(1).Info("Gateway token secret reconciled")
 
-	// 2c. Reconcile Tailscale state Secret (must precede StatefulSet)
-	if instance.Spec.Tailscale.Enabled {
-		err = r.reconcileTailscaleStateSecret(ctx, instance)
+	// 2c. Reconcile the mesh provider state Secret (must precede StatefulSet).
+	// Providers that keep state on a volume need none (#560).
+	if stateSecret := resources.MeshStateSecretName(instance); stateSecret != "" {
+		err = r.reconcileMeshStateSecret(ctx, instance, stateSecret)
 		if err != nil {
-			return fmt.Errorf("failed to reconcile Tailscale state secret: %w", err)
+			return fmt.Errorf("failed to reconcile mesh state secret: %w", err)
 		}
-		logger.V(1).Info("Tailscale state secret reconciled")
+		logger.V(1).Info("Mesh state secret reconciled", "secret", stateSecret)
 	}
 
 	// 2d. Resolve skill packs from GitHub (non-blocking - failures degrade but don't block provisioning)
@@ -823,25 +824,25 @@ func (r *OpenClawInstanceReconciler) reconcileGatewayTokenSecret(ctx context.Con
 	return tokenHex, nil
 }
 
-// reconcileTailscaleStateSecret ensures an empty Secret exists for Tailscale to
-// persist node identity and TLS certificate state. The containerboot process
-// reads and writes state to this Secret via the Kubernetes API (TS_KUBE_SECRET).
-// The operator pre-creates the Secret so that the pod's ServiceAccount only needs
+// reconcileMeshStateSecret ensures an empty Secret exists for a mesh provider to
+// persist node identity and TLS certificate state. Tailscale's containerboot
+// reads and writes it via the Kubernetes API (TS_KUBE_SECRET). The operator
+// pre-creates the Secret so the pod's ServiceAccount only needs
 // get/update/patch (not create) permissions, keeping RBAC minimal.
-func (r *OpenClawInstanceReconciler) reconcileTailscaleStateSecret(ctx context.Context, instance *openclawv1alpha1.OpenClawInstance) error {
+func (r *OpenClawInstanceReconciler) reconcileMeshStateSecret(ctx context.Context, instance *openclawv1alpha1.OpenClawInstance, name string) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      resources.TailscaleStateSecretName(instance),
+			Name:      name,
 			Namespace: instance.Namespace,
 		},
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
-		desired := resources.BuildTailscaleStateSecret(instance)
+		desired := resources.BuildMeshStateSecret(instance, name)
 		secret.Labels = mergeStringMap(secret.Labels, desired.Labels)
-		// Do not overwrite Data - containerboot manages the content
+		// Do not overwrite Data - the provider manages the content
 		return controllerutil.SetControllerReference(instance, secret, r.Scheme)
 	}); err != nil {
-		return fmt.Errorf("failed to reconcile Tailscale state secret: %w", err)
+		return fmt.Errorf("failed to reconcile mesh state secret: %w", err)
 	}
 	instance.Status.ManagedResources.TailscaleStateSecret = secret.Name
 	return nil
@@ -2017,9 +2018,10 @@ func (r *OpenClawInstanceReconciler) computeSecretHash(ctx context.Context, inst
 	}
 	secretNames = append(secretNames, gwSecretName)
 
-	// Include the Tailscale auth key Secret so rotations trigger a pod rollout
-	if instance.Spec.Tailscale.Enabled && instance.Spec.Tailscale.AuthKeySecretRef != nil {
-		secretNames = append(secretNames, instance.Spec.Tailscale.AuthKeySecretRef.Name)
+	// Include the mesh provider join credential Secret so rotations trigger a
+	// pod rollout (#560)
+	if credential := resources.MeshCredentialSecretName(instance); credential != "" {
+		secretNames = append(secretNames, credential)
 	}
 
 	if len(secretNames) == 0 {
@@ -2080,9 +2082,7 @@ func (r *OpenClawInstanceReconciler) findInstancesForSecret(ctx context.Context,
 		if !matched && instance.Spec.Gateway.ExistingSecret == secret.Name {
 			matched = true
 		}
-		if !matched && instance.Spec.Tailscale.Enabled &&
-			instance.Spec.Tailscale.AuthKeySecretRef != nil &&
-			instance.Spec.Tailscale.AuthKeySecretRef.Name == secret.Name {
+		if !matched && resources.MeshCredentialSecretName(instance) == secret.Name {
 			matched = true
 		}
 		if matched {

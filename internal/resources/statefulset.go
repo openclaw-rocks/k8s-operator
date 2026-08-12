@@ -75,7 +75,7 @@ func BuildStatefulSet(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenS
 				Spec: corev1.PodSpec{
 					ServiceAccountName:            ServiceAccountName(instance),
 					DeprecatedServiceAccount:      ServiceAccountName(instance),
-					AutomountServiceAccountToken:  Ptr(instance.Spec.SelfConfigure.Enabled || instance.Spec.Tailscale.Enabled),
+					AutomountServiceAccountToken:  Ptr(instance.Spec.SelfConfigure.Enabled || meshNeedsServiceAccountToken(instance)),
 					ShareProcessNamespace:         shareProcessNamespace(instance),
 					SecurityContext:               buildPodSecurityContext(instance),
 					InitContainers:                buildInitContainers(instance, externalWorkspaceFiles, additionalExternalFiles, skillPacks),
@@ -254,9 +254,9 @@ func buildContainers(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenSe
 		containers = append(containers, buildGatewayProxyContainer(instance))
 	}
 
-	// Add Tailscale sidecar if enabled
-	if instance.Spec.Tailscale.Enabled {
-		containers = append(containers, buildTailscaleContainer(instance))
+	// Add the mesh provider sidecar if one is enabled (#560)
+	if mesh := ActiveMeshProvider(instance); mesh != nil {
+		containers = append(containers, mesh.SidecarContainers(instance)...)
 	}
 
 	// Chromium is now a native sidecar (init container with restartPolicy: Always)
@@ -362,20 +362,10 @@ func buildMainContainer(instance *openclawv1alpha1.OpenClawInstance, gatewayToke
 		})
 	}
 
-	// Add Tailscale volume mounts (socket for tailscale whois, bin for CLI binary)
-	if instance.Spec.Tailscale.Enabled {
-		container.VolumeMounts = append(container.VolumeMounts,
-			corev1.VolumeMount{
-				Name:      "tailscale-socket",
-				MountPath: TailscaleSocketDir,
-				ReadOnly:  true,
-			},
-			corev1.VolumeMount{
-				Name:      "tailscale-bin",
-				MountPath: TailscaleBinPath,
-				ReadOnly:  true,
-			},
-		)
+	// Mesh provider mounts on the main container, e.g. a control socket the
+	// agent talks to (#560)
+	if mesh := ActiveMeshProvider(instance); mesh != nil {
+		container.VolumeMounts = append(container.VolumeMounts, mesh.MainContainerMounts(instance)...)
 	}
 
 	// Add extra volume mounts from spec
@@ -483,13 +473,10 @@ func buildMainEnv(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenSecre
 		})
 	}
 
-	// Tailscale socket path - main container uses this to talk to the sidecar's
-	// tailscaled (e.g. "tailscale whois" for SSO auth)
-	if instance.Spec.Tailscale.Enabled {
-		env = append(env, corev1.EnvVar{
-			Name:  "TS_SOCKET",
-			Value: TailscaleSocketPath,
-		})
+	// Mesh provider env on the main container, e.g. the Tailscale control
+	// socket path used by "tailscale whois" for SSO auth (#560)
+	if mesh := ActiveMeshProvider(instance); mesh != nil {
+		env = append(env, mesh.MainContainerEnv(instance)...)
 	}
 
 	// Self-configure env vars - let the agent know its identity
@@ -509,17 +496,18 @@ func buildMainEnv(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenSecre
 		})
 	}
 
-	// Build custom PATH with optional prefixes for runtime deps, Tailscale CLI,
-	// and npm-installed skill binaries (#335)
+	// Build custom PATH with optional prefixes for runtime deps, mesh provider
+	// CLIs, and npm-installed skill binaries (#335)
 	hasRuntimeDeps := instance.Spec.RuntimeDeps.Pnpm || instance.Spec.RuntimeDeps.Python
-	hasTailscale := instance.Spec.Tailscale.Enabled
+	var meshBinPaths []string
+	if mesh := ActiveMeshProvider(instance); mesh != nil {
+		meshBinPaths = mesh.BinPathPrefixes(instance)
+	}
 	hasNpmBins := hasNpmSkills(instance.Spec.Skills) || hasWorkspaceNpmSkills(instance)
-	if hasRuntimeDeps || hasTailscale || hasNpmBins {
+	if hasRuntimeDeps || len(meshBinPaths) > 0 || hasNpmBins {
 		basePath := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 		var prefixes []string
-		if hasTailscale {
-			prefixes = append(prefixes, TailscaleBinPath)
-		}
+		prefixes = append(prefixes, meshBinPaths...)
 		if hasRuntimeDeps || hasNpmBins {
 			prefixes = append(prefixes, RuntimeDepsLocalBin)
 		}
@@ -615,9 +603,10 @@ func buildInitContainers(instance *openclawv1alpha1.OpenClawInstance, externalWo
 		})
 	}
 
-	// Tailscale binary init container (copies tailscale CLI to shared volume)
-	if instance.Spec.Tailscale.Enabled {
-		initContainers = append(initContainers, buildTailscaleBinInitContainer(instance))
+	// Mesh provider init containers, e.g. staging the tailscale CLI onto a
+	// shared volume (#560)
+	if mesh := ActiveMeshProvider(instance); mesh != nil {
+		initContainers = append(initContainers, mesh.InitContainers(instance)...)
 	}
 
 	// uv + pip init containers:
@@ -2561,28 +2550,9 @@ func buildVolumes(instance *openclawv1alpha1.OpenClawInstance, skillPacks *Resol
 		})
 	}
 
-	// Tailscale volumes (state lives under /tmp so no separate state volume)
-	if instance.Spec.Tailscale.Enabled {
-		volumes = append(volumes,
-			corev1.Volume{
-				Name: "tailscale-socket",
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
-				},
-			},
-			corev1.Volume{
-				Name: "tailscale-bin",
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
-				},
-			},
-			corev1.Volume{
-				Name: "tailscale-tmp",
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
-				},
-			},
-		)
+	// Mesh provider volumes (#560)
+	if mesh := ActiveMeshProvider(instance); mesh != nil {
+		volumes = append(volumes, mesh.PodVolumes(instance)...)
 	}
 
 	// Chromium volumes
@@ -3046,9 +3016,14 @@ func calculateConfigHash(instance *openclawv1alpha1.OpenClawInstance, skillPacks
 		rdData, _ := json.Marshal(instance.Spec.RuntimeDeps)
 		h.Write(rdData)
 	}
+	// Mesh provider settings roll the pod when they change (#560).
 	if instance.Spec.Tailscale.Enabled {
 		tsData, _ := json.Marshal(instance.Spec.Tailscale)
 		h.Write(tsData)
+	}
+	if instance.Spec.NetBird != nil && instance.Spec.NetBird.Enabled {
+		nbData, _ := json.Marshal(instance.Spec.NetBird)
+		h.Write(nbData)
 	}
 	return hex.EncodeToString(h.Sum(nil)[:8])
 }

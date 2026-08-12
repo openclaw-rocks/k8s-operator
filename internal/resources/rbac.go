@@ -37,7 +37,7 @@ func BuildServiceAccount(instance *openclawv1alpha1.OpenClawInstance) *corev1.Se
 			Labels:      labels,
 			Annotations: instance.Spec.Security.RBAC.ServiceAccountAnnotations,
 		},
-		AutomountServiceAccountToken: Ptr(instance.Spec.SelfConfigure.Enabled || instance.Spec.Tailscale.Enabled),
+		AutomountServiceAccountToken: Ptr(instance.Spec.SelfConfigure.Enabled || MeshNeedsServiceAccountToken(instance)),
 	}
 }
 
@@ -85,12 +85,14 @@ func BuildRole(instance *openclawv1alpha1.OpenClawInstance) *rbacv1.Role {
 		}
 	}
 
-	// Tailscale state Secret - containerboot needs to read/write its state
-	if instance.Spec.Tailscale.Enabled {
+	// Mesh provider state Secret -- e.g. Tailscale's containerboot needs to
+	// read and write its node identity. Providers that keep state on a volume
+	// return "" and get no rule (#560).
+	if stateSecret := MeshStateSecretName(instance); stateSecret != "" {
 		rules = append(rules, rbacv1.PolicyRule{
 			APIGroups:     []string{""},
 			Resources:     []string{"secrets"},
-			ResourceNames: []string{TailscaleStateSecretName(instance)},
+			ResourceNames: []string{stateSecret},
 			Verbs:         []string{"get", "update", "patch"},
 		})
 	}
@@ -132,9 +134,9 @@ func selfConfigSecretNames(instance *openclawv1alpha1.OpenClawInstance) []string
 		}
 	}
 
-	// Tailscale auth key secret
-	if instance.Spec.Tailscale.Enabled && instance.Spec.Tailscale.AuthKeySecretRef != nil {
-		seen[instance.Spec.Tailscale.AuthKeySecretRef.Name] = true
+	// Mesh provider join credential (Tailscale auth key, NetBird setup key)
+	if credential := MeshCredentialSecretName(instance); credential != "" {
+		seen[credential] = true
 	}
 
 	names := make([]string, 0, len(seen))

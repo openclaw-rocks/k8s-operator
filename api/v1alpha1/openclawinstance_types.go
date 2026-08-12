@@ -118,6 +118,12 @@ type OpenClawInstanceSpec struct {
 	// +optional
 	Tailscale TailscaleSpec `json:"tailscale,omitempty"`
 
+	// NetBird configures NetBird overlay network integration, a self-hostable
+	// alternative to Tailscale. At most one mesh provider (tailscale, netbird)
+	// may be enabled per instance.
+	// +optional
+	NetBird *NetBirdSpec `json:"netbird,omitempty"`
+
 	// Ollama enables the Ollama sidecar for local LLM inference
 	// +optional
 	Ollama OllamaSpec `json:"ollama,omitempty"`
@@ -918,6 +924,65 @@ type TailscaleSpec struct {
 type TailscaleImageSpec struct {
 	// Repository is the container image repository
 	// +kubebuilder:default="ghcr.io/tailscale/tailscale"
+	// +optional
+	Repository string `json:"repository,omitempty"`
+
+	// Tag is the container image tag
+	// +kubebuilder:default="latest"
+	// +optional
+	Tag string `json:"tag,omitempty"`
+
+	// Digest is the container image digest for supply chain security
+	// +optional
+	Digest string `json:"digest,omitempty"`
+}
+
+// NetBirdSpec defines the NetBird overlay network configuration.
+//
+// NetBird is a self-hostable alternative to Tailscale: a WireGuard data plane
+// with a control plane you can run yourself. Only one mesh provider may be
+// enabled per instance.
+type NetBirdSpec struct {
+	// Enabled enables the NetBird sidecar.
+	// +kubebuilder:default=false
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Image configures the NetBird sidecar container image.
+	// +optional
+	Image NetBirdImageSpec `json:"image,omitempty"`
+
+	// SetupKeySecretRef references a Secret containing the NetBird setup key
+	// used to enroll this peer. The Secret must have a key matching
+	// SetupKeySecretKey (default: "setupkey"). Use a reusable, ephemeral setup
+	// key from the NetBird dashboard.
+	// +optional
+	SetupKeySecretRef *corev1.LocalObjectReference `json:"setupKeySecretRef,omitempty"`
+
+	// SetupKeySecretKey is the key in the referenced Secret.
+	// +kubebuilder:default="setupkey"
+	// +optional
+	SetupKeySecretKey string `json:"setupKeySecretKey,omitempty"`
+
+	// ManagementURL points at a self-hosted NetBird management server, e.g.
+	// "https://netbird.example.com:33073". Defaults to NetBird's hosted
+	// control plane when unset.
+	// +optional
+	ManagementURL string `json:"managementURL,omitempty"`
+
+	// Hostname sets the NetBird peer name (defaults to the instance name).
+	// +optional
+	Hostname string `json:"hostname,omitempty"`
+
+	// Resources specifies compute resources for the NetBird sidecar container.
+	// +optional
+	Resources ResourcesSpec `json:"resources,omitempty"`
+}
+
+// NetBirdImageSpec defines the NetBird sidecar container image
+type NetBirdImageSpec struct {
+	// Repository is the container image repository
+	// +kubebuilder:default="docker.io/netbirdio/netbird"
 	// +optional
 	Repository string `json:"repository,omitempty"`
 

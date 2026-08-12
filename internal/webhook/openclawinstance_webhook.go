@@ -165,6 +165,24 @@ func (v *OpenClawInstanceValidator) validate(instance *openclawv1alpha1.OpenClaw
 		}
 	}
 
+	// 3c. Only one overlay network may be active: two mesh clients in one pod
+	// would race for the same egress rules and the agent's routing (#560).
+	if enabled := resources.EnabledMeshProviders(instance); len(enabled) > 1 {
+		names := make([]string, 0, len(enabled))
+		for _, p := range enabled {
+			names = append(names, p.Name())
+		}
+		return nil, fmt.Errorf("only one mesh provider may be enabled, got %s", strings.Join(names, ", "))
+	}
+
+	// 3d. A mesh provider without a join credential cannot enroll the peer.
+	if mesh := resources.ActiveMeshProvider(instance); mesh != nil {
+		if mesh.CredentialSecretName(instance) == "" {
+			warnings = append(warnings, fmt.Sprintf(
+				"%s is enabled without a join credential Secret - the peer cannot enroll until one is configured", mesh.Name()))
+		}
+	}
+
 	// 4. Warn if Ingress is enabled without TLS
 	if instance.Spec.Networking.Ingress.Enabled {
 		if len(instance.Spec.Networking.Ingress.TLS) == 0 {
@@ -486,6 +504,23 @@ func validateResourceQuantities(instance *openclawv1alpha1.OpenClawInstance) err
 	}
 	if err := check("spec.tailscale.resources.limits.memory", tr.Limits.Memory); err != nil {
 		return err
+	}
+
+	// NetBird resources
+	if instance.Spec.NetBird != nil {
+		nr := instance.Spec.NetBird.Resources
+		if err := check("spec.netbird.resources.requests.cpu", nr.Requests.CPU); err != nil {
+			return err
+		}
+		if err := check("spec.netbird.resources.requests.memory", nr.Requests.Memory); err != nil {
+			return err
+		}
+		if err := check("spec.netbird.resources.limits.cpu", nr.Limits.CPU); err != nil {
+			return err
+		}
+		if err := check("spec.netbird.resources.limits.memory", nr.Limits.Memory); err != nil {
+			return err
+		}
 	}
 
 	// Ollama resources

@@ -610,6 +610,50 @@ _Appears in:_
 | `grafanaDashboard` _[GrafanaDashboardSpec](#grafanadashboardspec)_ | GrafanaDashboard configures auto-provisioned Grafana dashboard ConfigMaps |  | Optional: \{\} <br /> |
 
 
+#### NetBirdImageSpec
+
+
+
+NetBirdImageSpec defines the NetBird sidecar container image
+
+
+
+_Appears in:_
+- [NetBirdSpec](#netbirdspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `repository` _string_ | Repository is the container image repository | docker.io/netbirdio/netbird | Optional: \{\} <br /> |
+| `tag` _string_ | Tag is the container image tag | latest | Optional: \{\} <br /> |
+| `digest` _string_ | Digest is the container image digest for supply chain security |  | Optional: \{\} <br /> |
+
+
+#### NetBirdSpec
+
+
+
+NetBirdSpec defines the NetBird overlay network configuration.
+
+NetBird is a self-hostable alternative to Tailscale: a WireGuard data plane
+with a control plane you can run yourself. Only one mesh provider may be
+enabled per instance.
+
+
+
+_Appears in:_
+- [OpenClawInstanceSpec](#openclawinstancespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `enabled` _boolean_ | Enabled enables the NetBird sidecar. | false | Optional: \{\} <br /> |
+| `image` _[NetBirdImageSpec](#netbirdimagespec)_ | Image configures the NetBird sidecar container image. |  | Optional: \{\} <br /> |
+| `setupKeySecretRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#localobjectreference-v1-core)_ | SetupKeySecretRef references a Secret containing the NetBird setup key<br />used to enroll this peer. The Secret must have a key matching<br />SetupKeySecretKey (default: "setupkey"). Use a reusable, ephemeral setup<br />key from the NetBird dashboard. |  | Optional: \{\} <br /> |
+| `setupKeySecretKey` _string_ | SetupKeySecretKey is the key in the referenced Secret. | setupkey | Optional: \{\} <br /> |
+| `managementURL` _string_ | ManagementURL points at a self-hosted NetBird management server, e.g.<br />"https://netbird.example.com:33073". Defaults to NetBird's hosted<br />control plane when unset. |  | Optional: \{\} <br /> |
+| `hostname` _string_ | Hostname sets the NetBird peer name (defaults to the instance name). |  | Optional: \{\} <br /> |
+| `resources` _[ResourcesSpec](#resourcesspec)_ | Resources specifies compute resources for the NetBird sidecar container. |  | Optional: \{\} <br /> |
+
+
 #### NetworkPolicySpec
 
 
@@ -817,6 +861,7 @@ _Appears in:_
 | `storage` _[StorageSpec](#storagespec)_ | Storage specifies persistent storage configuration |  | Optional: \{\} <br /> |
 | `chromium` _[ChromiumSpec](#chromiumspec)_ | Chromium enables the Chromium sidecar for browser automation |  | Optional: \{\} <br /> |
 | `tailscale` _[TailscaleSpec](#tailscalespec)_ | Tailscale configures Tailscale integration for tailnet access and HTTPS |  | Optional: \{\} <br /> |
+| `netbird` _[NetBirdSpec](#netbirdspec)_ | NetBird configures NetBird overlay network integration, a self-hostable<br />alternative to Tailscale. At most one mesh provider (tailscale, netbird)<br />may be enabled per instance. |  | Optional: \{\} <br /> |
 | `ollama` _[OllamaSpec](#ollamaspec)_ | Ollama enables the Ollama sidecar for local LLM inference |  | Optional: \{\} <br /> |
 | `webTerminal` _[WebTerminalSpec](#webterminalspec)_ | WebTerminal enables a browser-based terminal (ttyd) sidecar for debugging |  | Optional: \{\} <br /> |
 | `initContainers` _[Container](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#container-v1-core) array_ | InitContainers is a list of additional init containers to run before the main container.<br />They run after the operator-managed init-config and init-skills containers. |  | MaxItems: 10 <br />Optional: \{\} <br /> |
@@ -1073,6 +1118,7 @@ ResourcesSpec defines compute resource requirements
 
 _Appears in:_
 - [ChromiumSpec](#chromiumspec)
+- [NetBirdSpec](#netbirdspec)
 - [OllamaSpec](#ollamaspec)
 - [OpenClawInstanceSpec](#openclawinstancespec)
 - [TailscaleSpec](#tailscalespec)

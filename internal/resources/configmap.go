@@ -202,8 +202,15 @@ func IsGatewayAuthTrustedProxy(configJSON []byte) bool {
 // enrichConfigWithOTelMetrics injects diagnostics.otel config into the config
 // JSON so OpenClaw pushes metrics to the OTel Collector sidecar via OTLP.
 // The collector then exposes these metrics as a Prometheus scrape endpoint.
-// If the user has already set diagnostics.otel, the config is returned
-// unchanged (user override wins).
+//
+// Only operator-owned fields that are absent get filled in, so a partial
+// user block still ends up with an explicit collector endpoint (#588).
+// Previously any existing diagnostics.otel object was treated as a complete
+// override, which left the endpoint unset -- the exporter then reached the
+// sidecar only because the OTLP library's own default URL happens to match
+// OTelHTTPReceiverPort. Two user settings stay authoritative: an explicit
+// endpoint is never rewritten, and an explicit "enabled": false opts the
+// instance out entirely.
 func enrichConfigWithOTelMetrics(configJSON []byte) ([]byte, error) {
 	var config map[string]interface{}
 	if err := json.Unmarshal(configJSON, &config); err != nil {
@@ -215,15 +222,36 @@ func enrichConfigWithOTelMetrics(configJSON []byte) ([]byte, error) {
 		diag = make(map[string]interface{})
 	}
 
-	// If the user already set diagnostics.otel, don't override
-	if _, ok := diag["otel"]; ok {
-		return configJSON, nil
+	otel, isObject := diag["otel"].(map[string]interface{})
+	if !isObject {
+		if _, present := diag["otel"]; present {
+			// Set to something that isn't an object -- leave it alone rather
+			// than clobbering a value we don't understand.
+			return configJSON, nil
+		}
+		otel = make(map[string]interface{})
 	}
 
-	diag["otel"] = map[string]interface{}{
-		"metrics":  true,
-		"endpoint": fmt.Sprintf("http://localhost:%d", OTelHTTPReceiverPort),
+	if enabled, present := otel["enabled"]; present {
+		if on, isBool := enabled.(bool); isBool && !on {
+			// Explicit opt-out: don't re-enable it or wire up an endpoint.
+			return configJSON, nil
+		}
+	} else {
+		// The diagnostics-otel plugin refuses to start unless this is truthy,
+		// so the operator-only path has to set it -- "metrics": true alone
+		// never enabled the exporter.
+		otel["enabled"] = true
 	}
+
+	if _, present := otel["metrics"]; !present {
+		otel["metrics"] = true
+	}
+	if _, present := otel["endpoint"]; !present {
+		otel["endpoint"] = fmt.Sprintf("http://localhost:%d", OTelHTTPReceiverPort)
+	}
+
+	diag["otel"] = otel
 	config["diagnostics"] = diag
 
 	return json.Marshal(config)

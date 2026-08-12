@@ -53,8 +53,13 @@ func BuildNetworkPolicy(instance *openclawv1alpha1.OpenClawInstance) *networking
 	return np
 }
 
-// networkPolicyIngressPorts returns the ports to allow in NetworkPolicy ingress rules.
-// When custom service ports are configured, those are used instead of the defaults.
+// networkPolicyIngressPorts returns the application ports to allow in
+// NetworkPolicy ingress rules. When custom service ports are configured, those
+// are used instead of the defaults.
+//
+// The metrics port is deliberately not included: it is rendered in its own rule
+// by buildMetricsIngressRules so that application allowlists don't implicitly
+// grant access to the unauthenticated /metrics endpoint (#578).
 func networkPolicyIngressPorts(instance *openclawv1alpha1.OpenClawInstance) []networkingv1.NetworkPolicyPort {
 	if len(instance.Spec.Networking.Service.Ports) > 0 {
 		ports := make([]networkingv1.NetworkPolicyPort, 0, len(instance.Spec.Networking.Service.Ports))
@@ -70,12 +75,6 @@ func networkPolicyIngressPorts(instance *openclawv1alpha1.OpenClawInstance) []ne
 			ports = append(ports, networkingv1.NetworkPolicyPort{
 				Protocol: Ptr(protocol),
 				Port:     Ptr(intstr.FromInt32(port)),
-			})
-		}
-		if IsMetricsEnabled(instance) {
-			ports = append(ports, networkingv1.NetworkPolicyPort{
-				Protocol: Ptr(corev1.ProtocolTCP),
-				Port:     Ptr(intstr.FromInt32(MetricsPort(instance))),
 			})
 		}
 		return ports
@@ -115,14 +114,20 @@ func networkPolicyIngressPorts(instance *openclawv1alpha1.OpenClawInstance) []ne
 		})
 	}
 
-	if IsMetricsEnabled(instance) {
-		ports = append(ports, networkingv1.NetworkPolicyPort{
-			Protocol: Ptr(corev1.ProtocolTCP),
-			Port:     Ptr(intstr.FromInt32(MetricsPort(instance))),
-		})
-	}
-
 	return ports
+}
+
+// namespacePeer builds a peer matching a namespace by name, optionally narrowed
+// to specific pods within it.
+func namespacePeer(namespace string, podSelector *metav1.LabelSelector) networkingv1.NetworkPolicyPeer {
+	return networkingv1.NetworkPolicyPeer{
+		NamespaceSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				"kubernetes.io/metadata.name": namespace,
+			},
+		},
+		PodSelector: podSelector,
+	}
 }
 
 // buildIngressRules creates the ingress rules for the NetworkPolicy
@@ -132,30 +137,14 @@ func buildIngressRules(instance *openclawv1alpha1.OpenClawInstance) []networking
 
 	// Allow from same namespace by default
 	rules = append(rules, networkingv1.NetworkPolicyIngressRule{
-		From: []networkingv1.NetworkPolicyPeer{
-			{
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{
-						"kubernetes.io/metadata.name": instance.Namespace,
-					},
-				},
-			},
-		},
+		From:  []networkingv1.NetworkPolicyPeer{namespacePeer(instance.Namespace, nil)},
 		Ports: npPorts,
 	})
 
 	// Allow from specified namespaces
 	for _, ns := range instance.Spec.Security.NetworkPolicy.AllowedIngressNamespaces {
 		rules = append(rules, networkingv1.NetworkPolicyIngressRule{
-			From: []networkingv1.NetworkPolicyPeer{
-				{
-					NamespaceSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"kubernetes.io/metadata.name": ns,
-						},
-					},
-				},
-			},
+			From:  []networkingv1.NetworkPolicyPeer{namespacePeer(ns, nil)},
 			Ports: npPorts,
 		})
 	}
@@ -174,7 +163,75 @@ func buildIngressRules(instance *openclawv1alpha1.OpenClawInstance) []networking
 		})
 	}
 
+	rules = append(rules, buildMetricsIngressRules(instance)...)
+
 	return rules
+}
+
+// buildMetricsIngressRules creates the ingress rules covering the metrics port.
+//
+// Metrics get their own rule so the unauthenticated /metrics endpoint can be
+// restricted independently of application traffic (#578). Without a
+// metricsIngress block the instance's own namespace is allowed, preserving the
+// behavior from before the field existed.
+func buildMetricsIngressRules(instance *openclawv1alpha1.OpenClawInstance) []networkingv1.NetworkPolicyIngressRule {
+	if !IsMetricsEnabled(instance) {
+		return nil
+	}
+
+	metricsPorts := []networkingv1.NetworkPolicyPort{
+		{
+			Protocol: Ptr(corev1.ProtocolTCP),
+			Port:     Ptr(intstr.FromInt32(MetricsPort(instance))),
+		},
+	}
+
+	cfg := instance.Spec.Networking.MetricsIngress
+	mode := openclawv1alpha1.MetricsIngressFromSameNamespace
+	if cfg != nil && cfg.From != "" {
+		mode = cfg.From
+	}
+
+	switch mode {
+	case openclawv1alpha1.MetricsIngressFromNone:
+		return nil
+
+	case openclawv1alpha1.MetricsIngressFromAllowedPeers:
+		peers := []networkingv1.NetworkPolicyPeer{}
+		if cfg != nil {
+			for _, ns := range cfg.AllowedNamespaces {
+				peers = append(peers, namespacePeer(ns, cfg.PodSelector))
+			}
+			// The pod selector narrows namespace peers only -- a CIDR peer has
+			// no pod identity to match against.
+			for _, cidr := range cfg.AllowedCIDRs {
+				peers = append(peers, networkingv1.NetworkPolicyPeer{
+					IPBlock: &networkingv1.IPBlock{CIDR: cidr},
+				})
+			}
+		}
+		if len(peers) == 0 {
+			// AllowedPeers with nothing listed means nobody may scrape. Emitting
+			// a rule with an empty From would allow everything, so emit none.
+			return nil
+		}
+		rules := make([]networkingv1.NetworkPolicyIngressRule, 0, len(peers))
+		for _, peer := range peers {
+			rules = append(rules, networkingv1.NetworkPolicyIngressRule{
+				From:  []networkingv1.NetworkPolicyPeer{peer},
+				Ports: metricsPorts,
+			})
+		}
+		return rules
+
+	default: // SameNamespace
+		return []networkingv1.NetworkPolicyIngressRule{
+			{
+				From:  []networkingv1.NetworkPolicyPeer{namespacePeer(instance.Namespace, nil)},
+				Ports: metricsPorts,
+			},
+		}
+	}
 }
 
 // buildEgressRules creates the egress rules for the NetworkPolicy

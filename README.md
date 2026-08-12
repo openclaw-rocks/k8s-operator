@@ -1113,7 +1113,7 @@ The operator follows a **secure-by-default** philosophy. Every instance ships wi
 - **Read-only root filesystem**: enabled by default for the main container and the Chromium sidecar; the PVC at `~/.openclaw/` provides writable home, and a `/tmp` emptyDir handles temp files
 - **All capabilities dropped**: no ambient Linux capabilities
 - **Seccomp RuntimeDefault**: syscall filtering enabled
-- **Default-deny NetworkPolicy**: only DNS (53) and HTTPS (443) egress allowed; ingress limited to same namespace
+- **Default-deny NetworkPolicy**: only DNS (53) and HTTPS (443) egress allowed; ingress limited to same namespace. Metrics ingress is a separate rule that can be restricted independently -- see [Restricting who can scrape metrics](#restricting-who-can-scrape-metrics)
 - **Minimal RBAC**: each instance gets its own ServiceAccount with read-only access to its own ConfigMap; operator can create/update Secrets only for operator-managed gateway tokens
 - **No automatic token mounting**: `automountServiceAccountToken: false` on both ServiceAccounts and pod specs (enabled only when `selfConfigure` is active)
 - **Secret validation**: the operator checks that all referenced Secrets exist and sets a `SecretsReady` condition
@@ -1167,7 +1167,16 @@ The operator follows a **secure-by-default** philosophy. Every instance ships wi
 | `openclaw_autoupdate_applied_total` | Counter | Successful auto-updates applied |
 | `openclaw_autoupdate_rollbacks_total` | Counter | Auto-update rollbacks triggered |
 
-When `metrics.enabled: true` (the default), the operator automatically configures a full metrics pipeline: it injects `diagnostics.otel` config into OpenClaw to push OTLP metrics to a lightweight OTel Collector sidecar (`otel/opentelemetry-collector`), which exposes a Prometheus scrape endpoint on the configured port (default 9090). No manual OpenClaw configuration is needed. If you already set `diagnostics.otel` in your instance config, the operator preserves your settings.
+When `metrics.enabled: true` (the default), the operator automatically configures a full metrics pipeline: it injects `diagnostics.otel` config into OpenClaw to push OTLP metrics to a lightweight OTel Collector sidecar (`otel/opentelemetry-collector`), which exposes a Prometheus scrape endpoint on the configured port (default 9090). No manual OpenClaw configuration is needed.
+
+If you already set `diagnostics.otel` in your instance config, the operator fills in only the fields you left out, so the rendered config always states the collector endpoint explicitly. Two settings stay authoritative and are never rewritten:
+
+| Your `diagnostics.otel` | Result |
+|-------------------------|--------|
+| absent | operator writes `enabled: true`, `metrics: true`, and its collector endpoint |
+| partial (e.g. only `enabled: true`) | operator adds the missing collector endpoint |
+| explicit `endpoint` | your endpoint is preserved |
+| explicit `enabled: false` | left untouched; no endpoint is injected |
 
 ### ServiceMonitor
 
@@ -1182,6 +1191,31 @@ spec:
         labels:
           release: prometheus
 ```
+
+The ServiceMonitor is fully reconciled: disabling the flag deletes it, out-of-band deletion or drift is corrected on the next reconcile, and deleting the instance garbage-collects it. It requires `metrics.enabled: true` -- with metrics off, no ServiceMonitor is created and a `ServiceMonitorReady` condition with reason `MetricsDisabled` explains why. If the Prometheus Operator CRDs are not installed, the condition reads `PrometheusOperatorNotInstalled` and reconciliation continues.
+
+### Restricting who can scrape metrics
+
+The `/metrics` endpoint is unauthenticated. By default it is reachable from the instance's own namespace, which in a shared namespace means any workload can scrape it. `spec.networking.metricsIngress` controls metrics ingress independently of application traffic:
+
+```yaml
+spec:
+  networking:
+    metricsIngress:
+      from: AllowedPeers        # SameNamespace (default) | AllowedPeers | None
+      allowedNamespaces:
+        - monitoring
+      allowedCIDRs: []          # optional, for collectors outside the cluster
+      podSelector:              # optional, narrows namespace peers only
+        matchLabels:
+          app.kubernetes.io/name: prometheus
+```
+
+- `SameNamespace` (default) keeps the existing behavior.
+- `AllowedPeers` restricts scraping to the namespaces and CIDRs listed here.
+- `None` emits no metrics ingress rule, for setups where a sidecar or node agent collects locally. It is not an absolute deny -- Kubernetes NetworkPolicies are additive, so another policy can still grant access.
+
+> **Behavior change:** `security.networkPolicy.allowedIngressNamespaces` and `allowedIngressCIDRs` now control **application traffic only**. They previously granted the metrics port too, because one port list was reused for every ingress peer. If you relied on an application allowlist to reach `/metrics` from another namespace, list that namespace under `metricsIngress.allowedNamespaces` with `from: AllowedPeers`.
 
 ### OTLP metrics export (operator)
 

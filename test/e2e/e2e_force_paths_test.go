@@ -140,7 +140,7 @@ var _ = Describe("OpenClawInstance forcePaths (#500)", func() {
 				summarizeStatuses(pod.Status.InitContainerStatuses),
 				summarizeStatuses(pod.Status.ContainerStatuses))
 			return false
-		}, 5*time.Minute, 5*time.Second).Should(BeTrue(),
+		}, 10*time.Minute, 5*time.Second).Should(BeTrue(),
 			"openclaw container should be Running")
 
 		// Capture the operator-managed gateway.auth.token before tampering.
@@ -200,14 +200,26 @@ var _ = Describe("OpenClawInstance forcePaths (#500)", func() {
 		oldUID := oldPod.UID
 		Expect(k8sClient.Delete(ctx, oldPod)).To(Succeed())
 
+		// Every instance gets init-uv, init-pip and init-plugin-runtime-deps
+		// unconditionally, so a pod becoming Running is gated on three init
+		// containers doing network and filesystem work. On a loaded kind runner
+		// that has exceeded five minutes with init-uv not yet even started, so
+		// the ceiling is generous here -- a slow runner should not read as a
+		// broken forcePaths rebuild.
+		//
+		// The closure logs pod state so a timeout shows what was actually
+		// blocking (image pull, init container, scheduling) instead of a bare
+		// "expected true", matching the pre-restart wait above.
 		Eventually(func() bool {
 			pod := &corev1.Pod{}
 			if err := k8sClient.Get(ctx, types.NamespacedName{
 				Name: podName, Namespace: namespace,
 			}, pod); err != nil {
+				GinkgoWriter.Printf("post-restart pod get error: %v\n", err)
 				return false
 			}
 			if pod.UID == oldUID {
+				GinkgoWriter.Printf("post-restart pod %s still has the old UID\n", podName)
 				return false
 			}
 			for _, cs := range pod.Status.ContainerStatuses {
@@ -215,8 +227,12 @@ var _ = Describe("OpenClawInstance forcePaths (#500)", func() {
 					return true
 				}
 			}
+			GinkgoWriter.Printf("post-restart pod %s phase=%s init=%s containers=%s\n",
+				podName, pod.Status.Phase,
+				summarizeStatuses(pod.Status.InitContainerStatuses),
+				summarizeStatuses(pod.Status.ContainerStatuses))
 			return false
-		}, 5*time.Minute, 5*time.Second).Should(BeTrue(),
+		}, 10*time.Minute, 5*time.Second).Should(BeTrue(),
 			"new openclaw pod should be Running after restart")
 
 		// The contract: gateway.auth.token was under "gateway" (a forcePath),

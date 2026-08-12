@@ -55,7 +55,12 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			// Minimal stand-ins for optional third-party CRDs so their
+			// reconcile paths are covered instead of skipped (#589).
+			filepath.Join("..", "..", "test", "testdata", "crds"),
+		},
 		ErrorIfCRDPathMissing: true,
 	}
 

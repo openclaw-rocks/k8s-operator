@@ -960,7 +960,67 @@ type NetworkingSpec struct {
 	// (gateway.networking.k8s.io). The Gateway API CRDs must be installed.
 	// +optional
 	HTTPRoute *HTTPRouteSpec `json:"httpRoute,omitempty"`
+
+	// MetricsIngress controls who may reach the metrics port in the generated
+	// NetworkPolicy, independently of application traffic. When unset, the
+	// metrics port stays reachable from the instance's own namespace, which is
+	// the pre-existing behavior.
+	// +optional
+	MetricsIngress *MetricsIngressSpec `json:"metricsIngress,omitempty"`
 }
+
+// MetricsIngressSpec configures NetworkPolicy ingress for the metrics port.
+//
+// The /metrics endpoint is unauthenticated, so in a shared namespace every
+// other workload could scrape it. Application allowlists
+// (security.networkPolicy.allowedIngressNamespaces / allowedIngressCIDRs) no
+// longer imply metrics access -- metrics peers are configured here instead.
+type MetricsIngressSpec struct {
+	// From selects which peers may reach the metrics port.
+	//
+	// SameNamespace (the default) allows the instance's own namespace, matching
+	// the behavior from before this field existed. AllowedPeers restricts access
+	// to the namespaces and CIDRs named below, which is the setting to use when
+	// only a Prometheus workload should scrape. None emits no metrics ingress
+	// rule at all, for setups where a sidecar or node agent collects locally.
+	//
+	// None is not an absolute deny: Kubernetes NetworkPolicies are additive, so
+	// another policy in the namespace can still grant access.
+	// +kubebuilder:validation:Enum=SameNamespace;AllowedPeers;None
+	// +kubebuilder:default=SameNamespace
+	// +optional
+	From MetricsIngressFrom `json:"from,omitempty"`
+
+	// AllowedNamespaces lists namespaces allowed to reach the metrics port when
+	// From is AllowedPeers.
+	// +optional
+	AllowedNamespaces []string `json:"allowedNamespaces,omitempty"`
+
+	// AllowedCIDRs lists IP ranges allowed to reach the metrics port when From
+	// is AllowedPeers, for collectors that live outside the cluster.
+	// +optional
+	AllowedCIDRs []string `json:"allowedCIDRs,omitempty"`
+
+	// PodSelector further narrows the namespace peers to specific pods, e.g. the
+	// Prometheus workload itself. It applies only to namespace peers, never to
+	// CIDR peers, and is ignored unless From is AllowedPeers.
+	// +optional
+	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
+}
+
+// MetricsIngressFrom selects which peers may reach the metrics port
+type MetricsIngressFrom string
+
+const (
+	// MetricsIngressFromSameNamespace allows the instance's own namespace (default)
+	MetricsIngressFromSameNamespace MetricsIngressFrom = "SameNamespace"
+
+	// MetricsIngressFromAllowedPeers allows only the explicitly named namespaces and CIDRs
+	MetricsIngressFromAllowedPeers MetricsIngressFrom = "AllowedPeers"
+
+	// MetricsIngressFromNone emits no metrics ingress rule
+	MetricsIngressFromNone MetricsIngressFrom = "None"
+)
 
 // HTTPRouteSpec defines a Gateway API HTTPRoute configuration
 type HTTPRouteSpec struct {
@@ -1671,6 +1731,10 @@ type ManagedResourcesStatus struct {
 	// +optional
 	PrometheusRule string `json:"prometheusRule,omitempty"`
 
+	// ServiceMonitor is the name of the managed ServiceMonitor
+	// +optional
+	ServiceMonitor string `json:"serviceMonitor,omitempty"`
+
 	// GrafanaDashboardOperator is the name of the operator overview dashboard ConfigMap
 	// +optional
 	GrafanaDashboardOperator string `json:"grafanaDashboardOperator,omitempty"`
@@ -1780,6 +1844,9 @@ const (
 
 	// ConditionTypeHTTPRouteReady indicates the Gateway API HTTPRoute is reconciled
 	ConditionTypeHTTPRouteReady = "HTTPRouteReady"
+
+	// ConditionTypeServiceMonitorReady indicates the Prometheus ServiceMonitor is reconciled
+	ConditionTypeServiceMonitorReady = "ServiceMonitorReady"
 )
 
 // Phase constants

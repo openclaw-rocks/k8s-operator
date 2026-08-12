@@ -352,6 +352,65 @@ type WorkspaceSpec struct {
 	// the default workspace to guide first-run agent onboarding.
 	// +optional
 	Bootstrap BootstrapSpec `json:"bootstrap,omitempty"`
+
+	// FileUpdatePolicy is the default update policy for every file seeded into
+	// this workspace. CreateOnly (the default) keeps the seed-once behavior:
+	// once a destination file exists on persistent storage, later source
+	// changes never replace it. Replace makes files converge whenever their
+	// source content changes.
+	//
+	// Per-path overrides live in ManagedFiles.
+	// +kubebuilder:default=CreateOnly
+	// +optional
+	FileUpdatePolicy WorkspaceFileUpdatePolicy `json:"fileUpdatePolicy,omitempty"`
+
+	// ManagedFiles declares per-path update policies, overriding
+	// FileUpdatePolicy for the listed paths.
+	//
+	// A path listed here is managed even if no source currently provides it, so
+	// adding the file to a configMapRef later does not require a CR change.
+	// +kubebuilder:validation:MaxItems=50
+	// +optional
+	ManagedFiles []ManagedWorkspaceFile `json:"managedFiles,omitempty"`
+}
+
+// WorkspaceFileUpdatePolicy controls whether a seeded workspace file converges
+// to its source or is written only once.
+// +kubebuilder:validation:Enum=CreateOnly;Replace
+type WorkspaceFileUpdatePolicy string
+
+const (
+	// WorkspaceFileUpdatePolicyCreateOnly writes the file only when the
+	// destination does not exist. This is the backward-compatible default and
+	// the right choice for runtime-owned workspace state.
+	WorkspaceFileUpdatePolicyCreateOnly WorkspaceFileUpdatePolicy = "CreateOnly"
+
+	// WorkspaceFileUpdatePolicyReplace rewrites the file whenever its source
+	// content changes, so files owned by Git or another external source keep
+	// converging.
+	//
+	// A local edit survives until the next genuine source change: the operator
+	// records the hash of the content it last applied, and rewrites only when
+	// that hash moves. It never prunes a workspace directory, and never deletes
+	// a destination because a source key was removed.
+	WorkspaceFileUpdatePolicyReplace WorkspaceFileUpdatePolicy = "Replace"
+)
+
+// ManagedWorkspaceFile declares the update policy for a single workspace file.
+type ManagedWorkspaceFile struct {
+	// Path is the workspace-relative destination path, e.g. "AGENTS.md" or
+	// "docs/BOUNDARIES.md". Absolute paths and ".." traversal are rejected.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[^/].*$`
+	Path string `json:"path"`
+
+	// UpdatePolicy overrides the workspace-level FileUpdatePolicy for this path.
+	// Defaults to Replace, since listing a path here is an explicit statement
+	// that the operator owns it.
+	// +kubebuilder:default=Replace
+	// +optional
+	UpdatePolicy WorkspaceFileUpdatePolicy `json:"updatePolicy,omitempty"`
 }
 
 // BootstrapSpec controls the operator-managed BOOTSTRAP.md workspace file.
@@ -405,6 +464,41 @@ type AdditionalWorkspace struct {
 	// +listType=set
 	// +optional
 	Skills []string `json:"skills,omitempty"`
+
+	// FileUpdatePolicy is the default update policy for files seeded into this
+	// workspace. When unset it inherits spec.workspace.fileUpdatePolicy, so the
+	// default workspace and its secondaries cannot silently drift apart.
+	// +optional
+	FileUpdatePolicy *WorkspaceFileUpdatePolicy `json:"fileUpdatePolicy,omitempty"`
+
+	// ManagedFiles declares per-path update policies for this workspace,
+	// overriding its effective FileUpdatePolicy for the listed paths.
+	// +kubebuilder:validation:MaxItems=50
+	// +optional
+	ManagedFiles []ManagedWorkspaceFile `json:"managedFiles,omitempty"`
+}
+
+// ManagedWorkspaceFileStatus reports the state of one declaratively managed
+// workspace file.
+type ManagedWorkspaceFileStatus struct {
+	// Workspace is the additional workspace name, or empty for the default workspace.
+	// +optional
+	Workspace string `json:"workspace,omitempty"`
+
+	// Path is the workspace-relative destination path.
+	Path string `json:"path"`
+
+	// UpdatePolicy is the resolved policy for this path.
+	UpdatePolicy WorkspaceFileUpdatePolicy `json:"updatePolicy"`
+
+	// SourceHash is the SHA-256 of the source content the operator currently
+	// declares for this path. The pod rewrites the destination when this value
+	// moves; while it holds steady, local edits are left alone.
+	//
+	// Empty when no source currently provides the path -- the path stays
+	// managed so a later source addition takes effect without a CR change.
+	// +optional
+	SourceHash string `json:"sourceHash,omitempty"`
 }
 
 // ConfigMapNameSelector references a ConfigMap by name.
@@ -1734,6 +1828,12 @@ type ManagedResourcesStatus struct {
 	// ServiceMonitor is the name of the managed ServiceMonitor
 	// +optional
 	ServiceMonitor string `json:"serviceMonitor,omitempty"`
+
+	// WorkspaceFiles reports the resolved update policy and applied source hash
+	// for each declaratively managed workspace file, so it is visible why a
+	// file was or was not rewritten.
+	// +optional
+	WorkspaceFiles []ManagedWorkspaceFileStatus `json:"workspaceFiles,omitempty"`
 
 	// GrafanaDashboardOperator is the name of the operator overview dashboard ConfigMap
 	// +optional

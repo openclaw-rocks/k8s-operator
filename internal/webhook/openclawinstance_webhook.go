@@ -348,6 +348,12 @@ func validateWorkspaceSpec(ws *openclawv1alpha1.WorkspaceSpec) error {
 		}
 	}
 
+	// Managed file paths are destinations the operator writes to, so a path that
+	// escapes the workspace root must never be accepted (#576).
+	if err := validateManagedFiles(ws.ManagedFiles, "workspace"); err != nil {
+		return err
+	}
+
 	// Validate additional workspaces
 	seen := make(map[string]bool, len(ws.AdditionalWorkspaces))
 	for i, aw := range ws.AdditionalWorkspaces {
@@ -389,8 +395,28 @@ func validateWorkspaceSpec(ws *openclawv1alpha1.WorkspaceSpec) error {
 			}
 			seenSkills[skill] = true
 		}
+
+		if err := validateManagedFiles(aw.ManagedFiles, fmt.Sprintf("additionalWorkspaces[%d] %q", i, aw.Name)); err != nil {
+			return err
+		}
 	}
 
+	return nil
+}
+
+// validateManagedFiles rejects managed file paths that would escape the
+// workspace root, and duplicate paths whose policies would be ambiguous (#576).
+func validateManagedFiles(managed []openclawv1alpha1.ManagedWorkspaceFile, prefix string) error {
+	seen := make(map[string]bool, len(managed))
+	for i, mf := range managed {
+		if err := resources.ValidateManagedWorkspacePath(mf.Path); err != nil {
+			return fmt.Errorf("%s managedFiles[%d]: %w", prefix, i, err)
+		}
+		if seen[mf.Path] {
+			return fmt.Errorf("%s managedFiles[%d].path %q is duplicated", prefix, i, mf.Path)
+		}
+		seen[mf.Path] = true
+	}
 	return nil
 }
 

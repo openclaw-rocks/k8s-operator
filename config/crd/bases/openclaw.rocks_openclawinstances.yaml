@@ -9739,6 +9739,15 @@ spec:
                           required:
                           - name
                           type: object
+                        fileUpdatePolicy:
+                          description: |-
+                            FileUpdatePolicy is the default update policy for files seeded into this
+                            workspace. When unset it inherits spec.workspace.fileUpdatePolicy, so the
+                            default workspace and its secondaries cannot silently drift apart.
+                          enum:
+                          - CreateOnly
+                          - Replace
+                          type: string
                         initialDirectories:
                           description: InitialDirectories is a list of directories
                             to create inside this workspace.
@@ -9753,6 +9762,37 @@ spec:
                             (same as spec.workspace.initialFiles).
                           maxProperties: 50
                           type: object
+                        managedFiles:
+                          description: |-
+                            ManagedFiles declares per-path update policies for this workspace,
+                            overriding its effective FileUpdatePolicy for the listed paths.
+                          items:
+                            description: ManagedWorkspaceFile declares the update
+                              policy for a single workspace file.
+                            properties:
+                              path:
+                                description: |-
+                                  Path is the workspace-relative destination path, e.g. "AGENTS.md" or
+                                  "docs/BOUNDARIES.md". Absolute paths and ".." traversal are rejected.
+                                maxLength: 253
+                                minLength: 1
+                                pattern: ^[^/].*$
+                                type: string
+                              updatePolicy:
+                                default: Replace
+                                description: |-
+                                  UpdatePolicy overrides the workspace-level FileUpdatePolicy for this path.
+                                  Defaults to Replace, since listing a path here is an explicit statement
+                                  that the operator owns it.
+                                enum:
+                                - CreateOnly
+                                - Replace
+                                type: string
+                            required:
+                            - path
+                            type: object
+                          maxItems: 50
+                          type: array
                         name:
                           description: |-
                             Name identifies this workspace. The operator seeds files to
@@ -9819,6 +9859,20 @@ spec:
                     required:
                     - name
                     type: object
+                  fileUpdatePolicy:
+                    default: CreateOnly
+                    description: |-
+                      FileUpdatePolicy is the default update policy for every file seeded into
+                      this workspace. CreateOnly (the default) keeps the seed-once behavior:
+                      once a destination file exists on persistent storage, later source
+                      changes never replace it. Replace makes files converge whenever their
+                      source content changes.
+
+                      Per-path overrides live in ManagedFiles.
+                    enum:
+                    - CreateOnly
+                    - Replace
+                    type: string
                   initialDirectories:
                     description: |-
                       InitialDirectories is a list of directories to create (mkdir -p)
@@ -9835,6 +9889,40 @@ spec:
                       to the workspace directory only if it does not already exist.
                     maxProperties: 50
                     type: object
+                  managedFiles:
+                    description: |-
+                      ManagedFiles declares per-path update policies, overriding
+                      FileUpdatePolicy for the listed paths.
+
+                      A path listed here is managed even if no source currently provides it, so
+                      adding the file to a configMapRef later does not require a CR change.
+                    items:
+                      description: ManagedWorkspaceFile declares the update policy
+                        for a single workspace file.
+                      properties:
+                        path:
+                          description: |-
+                            Path is the workspace-relative destination path, e.g. "AGENTS.md" or
+                            "docs/BOUNDARIES.md". Absolute paths and ".." traversal are rejected.
+                          maxLength: 253
+                          minLength: 1
+                          pattern: ^[^/].*$
+                          type: string
+                        updatePolicy:
+                          default: Replace
+                          description: |-
+                            UpdatePolicy overrides the workspace-level FileUpdatePolicy for this path.
+                            Defaults to Replace, since listing a path here is an explicit statement
+                            that the operator owns it.
+                          enum:
+                          - CreateOnly
+                          - Replace
+                          type: string
+                      required:
+                      - path
+                      type: object
+                    maxItems: 50
+                    type: array
                 type: object
             type: object
           status:
@@ -10061,6 +10149,45 @@ spec:
                       TailscaleStateSecret is the name of the Secret used to persist Tailscale
                       node identity and TLS certificate state across pod restarts
                     type: string
+                  workspaceFiles:
+                    description: |-
+                      WorkspaceFiles reports the resolved update policy and applied source hash
+                      for each declaratively managed workspace file, so it is visible why a
+                      file was or was not rewritten.
+                    items:
+                      description: |-
+                        ManagedWorkspaceFileStatus reports the state of one declaratively managed
+                        workspace file.
+                      properties:
+                        path:
+                          description: Path is the workspace-relative destination
+                            path.
+                          type: string
+                        sourceHash:
+                          description: |-
+                            SourceHash is the SHA-256 of the source content the operator currently
+                            declares for this path. The pod rewrites the destination when this value
+                            moves; while it holds steady, local edits are left alone.
+
+                            Empty when no source currently provides the path -- the path stays
+                            managed so a later source addition takes effect without a CR change.
+                          type: string
+                        updatePolicy:
+                          description: UpdatePolicy is the resolved policy for this
+                            path.
+                          enum:
+                          - CreateOnly
+                          - Replace
+                          type: string
+                        workspace:
+                          description: Workspace is the additional workspace name,
+                            or empty for the default workspace.
+                          type: string
+                      required:
+                      - path
+                      - updatePolicy
+                      type: object
+                    type: array
                 type: object
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed

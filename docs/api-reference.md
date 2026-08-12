@@ -34,6 +34,8 @@ _Appears in:_
 | `initialFiles` _object (keys:string, values:string)_ | InitialFiles maps filenames to their content (same as spec.workspace.initialFiles). |  | MaxProperties: 50 <br />Optional: \{\} <br /> |
 | `initialDirectories` _string array_ | InitialDirectories is a list of directories to create inside this workspace. |  | MaxItems: 20 <br />Optional: \{\} <br /> |
 | `skills` _string array_ | Skills is a list of skills to install scoped to this workspace, using the<br />same reference formats as the top-level spec.skills: a ClawHub skill<br />identifier (installed into workspace-<name>/skills/ via clawhub's<br />--workdir), an npm package prefixed with "npm:" (npm binaries are<br />installed globally and shared across workspaces), or a GitHub-hosted<br />skill pack prefixed with "pack:" (resolved files are seeded into<br />workspace-<name>/ and reconciled per spec.skillPackUpdatePolicy). |  | MaxItems: 20 <br />Optional: \{\} <br /> |
+| `fileUpdatePolicy` _[WorkspaceFileUpdatePolicy](#workspacefileupdatepolicy)_ | FileUpdatePolicy is the default update policy for files seeded into this<br />workspace. When unset it inherits spec.workspace.fileUpdatePolicy, so the<br />default workspace and its secondaries cannot silently drift apart. |  | Enum: [CreateOnly Replace] <br />Optional: \{\} <br /> |
+| `managedFiles` _[ManagedWorkspaceFile](#managedworkspacefile) array_ | ManagedFiles declares per-path update policies for this workspace,<br />overriding its effective FileUpdatePolicy for the listed paths. |  | MaxItems: 50 <br />Optional: \{\} <br /> |
 
 
 #### AutoScalingSpec
@@ -526,6 +528,24 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `level` _string_ | Level is the log level | info | Enum: [debug info warn error] <br />Optional: \{\} <br /> |
 | `format` _string_ | Format is the log format | json | Enum: [json text] <br />Optional: \{\} <br /> |
+
+
+#### ManagedWorkspaceFile
+
+
+
+ManagedWorkspaceFile declares the update policy for a single workspace file.
+
+
+
+_Appears in:_
+- [AdditionalWorkspace](#additionalworkspace)
+- [WorkspaceSpec](#workspacespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `path` _string_ | Path is the workspace-relative destination path, e.g. "AGENTS.md" or<br />"docs/BOUNDARIES.md". Absolute paths and ".." traversal are rejected. |  | MaxLength: 253 <br />MinLength: 1 <br />Pattern: `^[^/].*$` <br /> |
+| `updatePolicy` _[WorkspaceFileUpdatePolicy](#workspacefileupdatepolicy)_ | UpdatePolicy overrides the workspace-level FileUpdatePolicy for this path.<br />Defaults to Replace, since listing a path here is an explicit statement<br />that the operator owns it. | Replace | Enum: [CreateOnly Replace] <br />Optional: \{\} <br /> |
 
 
 #### MetricsIngressFrom
@@ -1325,6 +1345,27 @@ _Appears in:_
 | `credential` _[WebTerminalCredentialSpec](#webterminalcredentialspec)_ | Credential configures basic auth for the web terminal via a Secret.<br />The Secret must have "username" and "password" keys. |  | Optional: \{\} <br /> |
 
 
+#### WorkspaceFileUpdatePolicy
+
+_Underlying type:_ _string_
+
+WorkspaceFileUpdatePolicy controls whether a seeded workspace file converges
+to its source or is written only once.
+
+_Validation:_
+- Enum: [CreateOnly Replace]
+
+_Appears in:_
+- [AdditionalWorkspace](#additionalworkspace)
+- [ManagedWorkspaceFile](#managedworkspacefile)
+- [WorkspaceSpec](#workspacespec)
+
+| Field | Description |
+| --- | --- |
+| `CreateOnly` | WorkspaceFileUpdatePolicyCreateOnly writes the file only when the<br />destination does not exist. This is the backward-compatible default and<br />the right choice for runtime-owned workspace state.<br /> |
+| `Replace` | WorkspaceFileUpdatePolicyReplace rewrites the file whenever its source<br />content changes, so files owned by Git or another external source keep<br />converging.<br />A local edit survives until the next genuine source change: the operator<br />records the hash of the content it last applied, and rewrites only when<br />that hash moves. It never prunes a workspace directory, and never deletes<br />a destination because a source key was removed.<br /> |
+
+
 #### WorkspaceSpec
 
 
@@ -1345,5 +1386,7 @@ _Appears in:_
 | `initialDirectories` _string array_ | InitialDirectories is a list of directories to create (mkdir -p)<br />inside the workspace directory. Nested paths like "tools/scripts" are allowed. |  | MaxItems: 20 <br />Optional: \{\} <br /> |
 | `additionalWorkspaces` _[AdditionalWorkspace](#additionalworkspace) array_ | AdditionalWorkspaces configures workspace files for secondary agents.<br />Each entry seeds files to ~/.openclaw/workspace-<name>/, matching the<br />workspace path configured in spec.config.raw.agents.list[].workspace. |  | MaxItems: 10 <br />Optional: \{\} <br /> |
 | `bootstrap` _[BootstrapSpec](#bootstrapspec)_ | Bootstrap controls the operator-managed BOOTSTRAP.md file injected into<br />the default workspace to guide first-run agent onboarding. |  | Optional: \{\} <br /> |
+| `fileUpdatePolicy` _[WorkspaceFileUpdatePolicy](#workspacefileupdatepolicy)_ | FileUpdatePolicy is the default update policy for every file seeded into<br />this workspace. CreateOnly (the default) keeps the seed-once behavior:<br />once a destination file exists on persistent storage, later source<br />changes never replace it. Replace makes files converge whenever their<br />source content changes.<br />Per-path overrides live in ManagedFiles. | CreateOnly | Enum: [CreateOnly Replace] <br />Optional: \{\} <br /> |
+| `managedFiles` _[ManagedWorkspaceFile](#managedworkspacefile) array_ | ManagedFiles declares per-path update policies, overriding<br />FileUpdatePolicy for the listed paths.<br />A path listed here is managed even if no source currently provides it, so<br />adding the file to a configMapRef later does not require a CR change. |  | MaxItems: 50 <br />Optional: \{\} <br /> |
 
 

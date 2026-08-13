@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0](https://github.com/paperclipinc/openclaw-operator/compare/v0.38.3...v0.39.0) (2026-08-12)
+
+
+### Features
+
+* **mesh:** add a mesh provider abstraction and NetBird support ([#594](https://github.com/paperclipinc/openclaw-operator/issues/594)) ([56824b3](https://github.com/paperclipinc/openclaw-operator/commit/56824b34756b45b9a8fc9b8a170eb2a97a9ec4de))
+* **workspace:** add a configurable file update policy ([#593](https://github.com/paperclipinc/openclaw-operator/issues/593)) ([83e9dfd](https://github.com/paperclipinc/openclaw-operator/commit/83e9dfdcce7d796991cf1488d67eec30b4ef50a3))
+
+
+### Bug Fixes
+
+* complete the metrics pipeline (OTel endpoint, ServiceMonitor lifecycle, metrics ingress isolation) ([#590](https://github.com/paperclipinc/openclaw-operator/issues/590)) ([2b79d1e](https://github.com/paperclipinc/openclaw-operator/commit/2b79d1eed264ef0c4379d273e20faef6ee3ad973))
+* scope the operator-namespace cache entry to Secrets in namespaced mode ([#591](https://github.com/paperclipinc/openclaw-operator/issues/591)) ([a74bab1](https://github.com/paperclipinc/openclaw-operator/commit/a74bab1960393bdf0ad41415902a10b9390611bb))
+
 ## [0.38.3](https://github.com/paperclipinc/openclaw-operator/compare/v0.38.2...v0.38.3) (2026-07-28)
 
 

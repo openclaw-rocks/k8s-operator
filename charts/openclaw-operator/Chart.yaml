@@ -4,8 +4,8 @@ description: >-
   A Kubernetes operator for deploying and managing OpenClaw AI assistant
   instances
 type: application
-version: 0.38.3
-appVersion: 0.38.3
+version: 0.39.0
+appVersion: 0.39.0
 keywords:
   - kubernetes
   - operator
@@ -72,7 +72,7 @@ annotations:
             size: 10Gi
   artifacthub.io/images: |
     - name: openclaw-operator
-      image: ghcr.io/paperclipinc/openclaw-operator:v0.38.3 # x-release-please-version
+      image: ghcr.io/paperclipinc/openclaw-operator:v0.39.0 # x-release-please-version
   artifacthub.io/changes: |
     - kind: added
       description: Helm chart OCI artifact is now cosign-signed (keyless)

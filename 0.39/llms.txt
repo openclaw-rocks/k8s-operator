@@ -1,0 +1,26 @@
+# OpenClaw Operator
+
+> Kubernetes operator for managing OpenClaw AI agent instances with production-grade security, observability, and lifecycle management.
+
+## Docs
+
+- [API Reference - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/api-reference/)
+- [Architecture - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/architecture/)
+- [Backup and Restore - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/backup-restore/)
+- [Custom AI Providers - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/custom-providers/)
+- [Deployment Guide - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/deployment/)
+- [External Secrets Operator (ESO) Integration - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/external-secrets/)
+- [Full Example - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/full-example/)
+- [OpenClaw Operator - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/)
+- [Model Fallback Chains - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/model-fallback/)
+- [OpenClawClusterDefaults - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/openclaw-cluster-defaults/)
+- [OpenClawSelfConfig - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/openclaw-self-config/)
+- [OpenClawAutoUpdateRollback - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/runbooks/OpenClawAutoUpdateRollback/)
+- [OpenClawInstanceDegraded - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/runbooks/OpenClawInstanceDegraded/)
+- [OpenClawPVCNearlyFull - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/runbooks/OpenClawPVCNearlyFull/)
+- [OpenClawPodCrashLooping - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/runbooks/OpenClawPodCrashLooping/)
+- [OpenClawPodOOMKilled - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/runbooks/OpenClawPodOOMKilled/)
+- [OpenClawReconcileErrors - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/runbooks/OpenClawReconcileErrors/)
+- [OpenClawSlowReconciliation - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/runbooks/OpenClawSlowReconciliation/)
+- [openclaw-operator: v1 API Graduation Migration Plan - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/superpowers/plans/2026-06-03-v1-graduation-plan/)
+- [Troubleshooting - OpenClaw Operator](https://paperclip.inc/docs/operators/openclaw/latest/troubleshooting/)

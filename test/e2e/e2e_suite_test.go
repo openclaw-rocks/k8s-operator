@@ -1647,8 +1647,8 @@ var _ = Describe("OpenClawInstance Controller", func() {
 			browser, ok := parsed["browser"].(map[string]interface{})
 			Expect(ok).To(BeTrue(), "config should have browser key")
 			Expect(browser["attachOnly"]).To(BeTrue(), "browser.attachOnly should be true")
-			Expect(browser["remoteCdpTimeoutMs"]).To(BeNumerically("==", 30000),
-				"browser.remoteCdpTimeoutMs should be 30000")
+			Expect(browser).NotTo(HaveKey("remoteCdpTimeoutMs"),
+				"browser.remoteCdpTimeoutMs is not part of the canonical OpenClaw config")
 
 			profiles, ok := browser["profiles"].(map[string]interface{})
 			Expect(ok).To(BeTrue(), "browser should have profiles key")
@@ -1659,6 +1659,8 @@ var _ = Describe("OpenClawInstance Controller", func() {
 				Expect(ok).To(BeTrue(), "profiles should have %s key", profileName)
 				Expect(profile["cdpUrl"]).To(Equal(expectedCDPURL),
 					"browser.profiles.%s.cdpUrl should use env var reference", profileName)
+				Expect(profile).NotTo(HaveKey("color"),
+					"browser.profiles.%s.color is not part of the canonical OpenClaw config", profileName)
 			}
 
 			// Verify Service has chromium port

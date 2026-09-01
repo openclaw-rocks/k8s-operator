@@ -6203,6 +6203,13 @@ spec:
                         default: true
                         description: AllowDNS allows DNS resolution (port 53)
                         type: boolean
+                      allowSameNamespaceIngress:
+                        default: true
+                        description: |-
+                          AllowSameNamespaceIngress allows application traffic from all pods in the instance namespace.
+                          Disable this when application ingress is fully described by the explicit namespace or CIDR lists.
+                          Metrics ingress is configured independently through networking.metricsIngress.
+                        type: boolean
                       allowedEgressCIDRs:
                         description: |-
                           AllowedEgressCIDRs is a list of CIDRs this instance can reach

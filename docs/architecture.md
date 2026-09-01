@@ -166,7 +166,7 @@ The Chromium sidecar (if enabled) runs as UID `1001` with `readOnlyRootFilesyste
 When `security.networkPolicy.enabled` is `true` (the default), the operator creates a NetworkPolicy that implements a default-deny posture with selective allowlisting:
 
 **Ingress rules:**
-- Allow traffic from the same namespace on ports 18789 (gateway) and 18793 (canvas).
+- Allow traffic from the same namespace on ports 18789 (gateway) and 18793 (canvas) by default. Set `security.networkPolicy.allowSameNamespaceIngress: false` when explicit ingress rules own the application boundary.
 - Allow traffic from explicitly listed namespaces (`allowedIngressNamespaces`).
 - Allow traffic from explicitly listed CIDRs (`allowedIngressCIDRs`).
 

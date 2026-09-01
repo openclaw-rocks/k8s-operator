@@ -135,11 +135,15 @@ func buildIngressRules(instance *openclawv1alpha1.OpenClawInstance) []networking
 	rules := []networkingv1.NetworkPolicyIngressRule{}
 	npPorts := networkPolicyIngressPorts(instance)
 
-	// Allow from same namespace by default
-	rules = append(rules, networkingv1.NetworkPolicyIngressRule{
-		From:  []networkingv1.NetworkPolicyPeer{namespacePeer(instance.Namespace, nil)},
-		Ports: npPorts,
-	})
+	// Allow from same namespace by default.
+	allowSameNamespace := instance.Spec.Security.NetworkPolicy.AllowSameNamespaceIngress == nil ||
+		*instance.Spec.Security.NetworkPolicy.AllowSameNamespaceIngress
+	if allowSameNamespace {
+		rules = append(rules, networkingv1.NetworkPolicyIngressRule{
+			From:  []networkingv1.NetworkPolicyPeer{namespacePeer(instance.Namespace, nil)},
+			Ports: npPorts,
+		})
+	}
 
 	// Allow from specified namespaces
 	for _, ns := range instance.Spec.Security.NetworkPolicy.AllowedIngressNamespaces {

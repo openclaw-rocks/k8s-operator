@@ -958,6 +958,11 @@ func (in *NetworkPolicySpec) DeepCopyInto(out *NetworkPolicySpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.AllowSameNamespaceIngress != nil {
+		in, out := &in.AllowSameNamespaceIngress, &out.AllowSameNamespaceIngress
+		*out = new(bool)
+		**out = **in
+	}
 	if in.AllowedEgressCIDRs != nil {
 		in, out := &in.AllowedEgressCIDRs, &out.AllowedEgressCIDRs
 		*out = make([]string, len(*in))

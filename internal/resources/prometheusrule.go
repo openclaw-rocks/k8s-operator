@@ -18,6 +18,7 @@ package resources
 
 import (
 	"fmt"
+	"regexp"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -62,10 +63,7 @@ func BuildPrometheusRule(instance *openclawv1alpha1.OpenClawInstance) *unstructu
 		runbookBase = instance.Spec.Observability.Metrics.PrometheusRule.RunbookBaseURL
 	}
 
-	name := instance.Name
-	ns := instance.Namespace
-
-	alerts := buildAlerts(name, ns, runbookBase)
+	alerts := buildAlerts(instance, runbookBase)
 
 	pr := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -90,11 +88,13 @@ func BuildPrometheusRule(instance *openclawv1alpha1.OpenClawInstance) *unstructu
 	return pr
 }
 
-func buildAlerts(name, ns, runbookBase string) []interface{} {
+func buildAlerts(instance *openclawv1alpha1.OpenClawInstance, runbookBase string) []interface{} {
 	// Helper to quote a label value in PromQL (avoids sprintfQuotedString lint)
 	q := func(s string) string { return `"` + s + `"` }
+	name := instance.Name
+	ns := instance.Namespace
 
-	return []interface{}{
+	alerts := []interface{}{
 		buildAlert(
 			"OpenClawReconcileErrors",
 			`sum(rate(openclaw_reconcile_total{result="error",instance=`+q(name)+`,namespace=`+q(ns)+`}[5m])) > 0`,
@@ -135,23 +135,41 @@ func buildAlerts(name, ns, runbookBase string) []interface{} {
 			"OpenClaw pod {{ $labels.pod }} was OOM killed. Consider increasing memory limits.",
 			runbookBase,
 		),
-		buildAlert(
+	}
+
+	if IsPersistenceEnabled(instance) {
+		claimMatcher := pvcClaimMatcher(instance)
+		alerts = append(alerts, buildAlert(
 			"OpenClawPVCNearlyFull",
-			`(kubelet_volume_stats_used_bytes{namespace=`+q(ns)+`,persistentvolumeclaim=~`+q("data-"+name+".*")+`} / kubelet_volume_stats_capacity_bytes{namespace=`+q(ns)+`,persistentvolumeclaim=~`+q("data-"+name+".*")+`}) > 0.80`,
+			`(kubelet_volume_stats_used_bytes{namespace=`+q(ns)+`,`+claimMatcher+`} / kubelet_volume_stats_capacity_bytes{namespace=`+q(ns)+`,`+claimMatcher+`}) > 0.80`,
 			"5m",
 			"warning",
 			"PVC for OpenClaw instance {{ $labels.persistentvolumeclaim }} is over 80% full.",
 			runbookBase,
-		),
-		buildAlert(
-			"OpenClawAutoUpdateRollback",
-			`increase(openclaw_autoupdate_rollbacks_total{instance=`+q(name)+`,namespace=`+q(ns)+`}[1h]) > 0`,
-			"0m",
-			"warning",
-			"OpenClaw instance {{ $labels.instance }} auto-update rolled back in the last hour.",
-			runbookBase,
-		),
+		))
 	}
+
+	return append(alerts, buildAlert(
+		"OpenClawAutoUpdateRollback",
+		`increase(openclaw_autoupdate_rollbacks_total{instance=`+q(name)+`,namespace=`+q(ns)+`}[1h]) > 0`,
+		"0m",
+		"warning",
+		"OpenClaw instance {{ $labels.instance }} auto-update rolled back in the last hour.",
+		runbookBase,
+	))
+}
+
+func pvcClaimMatcher(instance *openclawv1alpha1.OpenClawInstance) string {
+	if IsHPAEnabled(instance) {
+		claimPattern := regexp.QuoteMeta("data-"+StatefulSetName(instance)+"-") + `[0-9]+`
+		return `persistentvolumeclaim=~"` + claimPattern + `"`
+	}
+
+	claimName := PVCName(instance)
+	if instance.Spec.Storage.Persistence.ExistingClaim != "" {
+		claimName = instance.Spec.Storage.Persistence.ExistingClaim
+	}
+	return `persistentvolumeclaim="` + claimName + `"`
 }
 
 func buildAlert(alertName, expr, forDuration, severity, summary, runbookBase string) map[string]interface{} {

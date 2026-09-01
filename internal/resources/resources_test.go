@@ -10145,6 +10145,72 @@ func TestBuildPrometheusRule(t *testing.T) {
 	}
 }
 
+func TestBuildPrometheusRule_PVCClaimSelection(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutate   func(*openclawv1alpha1.OpenClawInstance)
+		wantExpr string
+	}{
+		{
+			name:     "managed singleton claim",
+			mutate:   func(*openclawv1alpha1.OpenClawInstance) {},
+			wantExpr: `persistentvolumeclaim="my-instance-data"`,
+		},
+		{
+			name: "existing claim",
+			mutate: func(instance *openclawv1alpha1.OpenClawInstance) {
+				instance.Spec.Storage.Persistence.ExistingClaim = "restored-openclaw-data"
+			},
+			wantExpr: `persistentvolumeclaim="restored-openclaw-data"`,
+		},
+		{
+			name: "autoscaled claim templates",
+			mutate: func(instance *openclawv1alpha1.OpenClawInstance) {
+				instance.Spec.Availability.AutoScaling = &openclawv1alpha1.AutoScalingSpec{
+					Enabled: Ptr(true),
+				}
+			},
+			wantExpr: `persistentvolumeclaim=~"data-my-instance-[0-9]+"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := newTestInstance("my-instance")
+			tt.mutate(instance)
+
+			expr, ok := prometheusAlertExpr(buildAlerts(instance, defaultRunbookBaseURL), "OpenClawPVCNearlyFull")
+			if !ok {
+				t.Fatal("missing OpenClawPVCNearlyFull alert")
+			}
+			if !strings.Contains(expr, tt.wantExpr) {
+				t.Errorf("PVC alert expression = %q, want selector %q", expr, tt.wantExpr)
+			}
+		})
+	}
+}
+
+func TestBuildPrometheusRule_PersistenceDisabledOmitsPVCAlert(t *testing.T) {
+	instance := newTestInstance("my-instance")
+	instance.Spec.Storage.Persistence.Enabled = Ptr(false)
+
+	if _, ok := prometheusAlertExpr(buildAlerts(instance, defaultRunbookBaseURL), "OpenClawPVCNearlyFull"); ok {
+		t.Fatal("OpenClawPVCNearlyFull alert should be omitted when persistence is disabled")
+	}
+}
+
+func prometheusAlertExpr(alerts []interface{}, alertName string) (string, bool) {
+	for _, candidate := range alerts {
+		rule, ok := candidate.(map[string]interface{})
+		if !ok || rule["alert"] != alertName {
+			continue
+		}
+		expr, ok := rule["expr"].(string)
+		return expr, ok
+	}
+	return "", false
+}
+
 // ---------------------------------------------------------------------------
 // Self-Configure tests
 // ---------------------------------------------------------------------------

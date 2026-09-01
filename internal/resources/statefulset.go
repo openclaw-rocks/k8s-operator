@@ -1864,7 +1864,7 @@ func buildTailscaleBinInitContainer(instance *openclawv1alpha1.OpenClawInstance)
 func buildGatewayProxyContainer(instance *openclawv1alpha1.OpenClawInstance) corev1.Container {
 	return corev1.Container{
 		Name:            "gateway-proxy",
-		Image:           ApplyRegistryOverride(DefaultGatewayProxyImage, instance.Spec.Registry),
+		Image:           GetGatewayProxyImage(instance),
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Ports: []corev1.ContainerPort{
 			{
@@ -1890,16 +1890,7 @@ func buildGatewayProxyContainer(instance *openclawv1alpha1.OpenClawInstance) cor
 				MountPath: "/tmp",
 			},
 		},
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("10m"),
-				corev1.ResourceMemory: resource.MustParse("16Mi"),
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("64Mi"),
-			},
-		},
+		Resources: buildGatewayProxyResourceRequirements(instance),
 		SecurityContext: &corev1.SecurityContext{
 			AllowPrivilegeEscalation: Ptr(false),
 			ReadOnlyRootFilesystem:   Ptr(true),
@@ -1915,6 +1906,21 @@ func buildGatewayProxyContainer(instance *openclawv1alpha1.OpenClawInstance) cor
 		TerminationMessagePath:   corev1.TerminationMessagePathDefault,
 		TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 	}
+}
+
+// buildGatewayProxyResourceRequirements creates resource requirements for the gateway proxy sidecar.
+func buildGatewayProxyResourceRequirements(instance *openclawv1alpha1.OpenClawInstance) corev1.ResourceRequirements {
+	req := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{},
+		Limits:   corev1.ResourceList{},
+	}
+
+	req.Requests[corev1.ResourceCPU] = ParseQuantity(instance.Spec.Gateway.Resources.Requests.CPU, "10m")
+	req.Requests[corev1.ResourceMemory] = ParseQuantity(instance.Spec.Gateway.Resources.Requests.Memory, "16Mi")
+	req.Limits[corev1.ResourceCPU] = ParseQuantity(instance.Spec.Gateway.Resources.Limits.CPU, "100m")
+	req.Limits[corev1.ResourceMemory] = ParseQuantity(instance.Spec.Gateway.Resources.Limits.Memory, "64Mi")
+
+	return req
 }
 
 // buildChromiumContainer creates the Chromium sidecar container.

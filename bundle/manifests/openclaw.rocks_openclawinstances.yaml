@@ -5931,6 +5931,25 @@ spec:
                     description: Python installs Python 3.12 and uv for Python-based
                       MCP servers and skills.
                     type: boolean
+                  uvImage:
+                    description: |-
+                      UVImage configures the uv bootstrap image used by the built-in init-uv
+                      and init-python containers.
+                    properties:
+                      digest:
+                        description: |-
+                          Digest is the container image digest for supply chain security.
+                          When set, it takes precedence over Tag.
+                        type: string
+                      repository:
+                        default: ghcr.io/astral-sh/uv
+                        description: Repository is the container image repository.
+                        type: string
+                      tag:
+                        default: 0.6-bookworm-slim
+                        description: Tag is the container image tag.
+                        type: string
+                    type: object
                 type: object
               security:
                 description: Security specifies security-related configuration

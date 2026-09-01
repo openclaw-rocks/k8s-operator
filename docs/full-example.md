@@ -199,6 +199,10 @@ spec:
   runtimeDeps:
     pnpm: true
     python: true
+    uvImage:
+      repository: ghcr.io/astral-sh/uv
+      tag: 0.6-bookworm-slim
+      # digest: sha256:...
 
   gateway:
     existingSecret: my-gateway-token

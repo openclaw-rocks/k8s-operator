@@ -122,9 +122,13 @@ const (
 	// DefaultCABundleKey is the default key in a ConfigMap or Secret for the CA bundle
 	DefaultCABundleKey = "ca-bundle.crt"
 
+	// DefaultUVImageRepository is the default uv bootstrap image repository.
+	DefaultUVImageRepository = "ghcr.io/astral-sh/uv"
+	// DefaultUVImageTag is the default uv bootstrap image tag.
+	DefaultUVImageTag = "0.6-bookworm-slim"
 	// UvImage is the image used for Python/uv runtime dependency installation.
 	// Must be a shell-capable variant (not distroless) since the init script uses sh -c.
-	UvImage = "ghcr.io/astral-sh/uv:0.6-bookworm-slim"
+	UvImage = DefaultUVImageRepository + ":" + DefaultUVImageTag
 
 	// RuntimeDepsLocalBin is the path where runtime dependency binaries are installed on the PVC
 	RuntimeDepsLocalBin = "/home/openclaw/.openclaw/.local/bin"
@@ -458,6 +462,28 @@ func GetTailscaleImage(instance *openclawv1alpha1.OpenClawInstance) string {
 		}
 		image = repo + ":" + tag
 	}
+	return ApplyRegistryOverride(image, instance.Spec.Registry)
+}
+
+// GetUVImage returns the full uv bootstrap image reference.
+func GetUVImage(instance *openclawv1alpha1.OpenClawInstance) string {
+	imageSpec := instance.Spec.RuntimeDeps.UVImage
+	repo := DefaultUVImageRepository
+	if imageSpec != nil && imageSpec.Repository != "" {
+		repo = imageSpec.Repository
+	}
+
+	var image string
+	if imageSpec != nil && imageSpec.Digest != "" {
+		image = repo + "@" + imageSpec.Digest
+	} else {
+		tag := DefaultUVImageTag
+		if imageSpec != nil && imageSpec.Tag != "" {
+			tag = imageSpec.Tag
+		}
+		image = repo + ":" + tag
+	}
+
 	return ApplyRegistryOverride(image, instance.Spec.Registry)
 }
 

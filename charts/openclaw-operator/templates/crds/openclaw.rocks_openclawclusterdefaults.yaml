@@ -259,8 +259,9 @@ spec:
                   (pnpm, Python) applied to instances where the corresponding fields are
                   unset. A cluster default of true for a runtime dep is always applied
                   unless the instance explicitly opts out (sets the field to false).
-                  NOTE: because RuntimeDepsSpec fields are plain booleans, "unset" and
-                  "false" are indistinguishable; cluster defaults are OR-merged here.
+                  NOTE: because the enablement fields are plain booleans, "unset" and
+                  "false" are indistinguishable; those fields are OR-merged here. UVImage
+                  follows normal precedence and applies only when the instance omits it.
                 properties:
                   pnpm:
                     description: Pnpm installs pnpm via corepack for npm-based MCP
@@ -270,6 +271,25 @@ spec:
                     description: Python installs Python 3.12 and uv for Python-based
                       MCP servers and skills.
                     type: boolean
+                  uvImage:
+                    description: |-
+                      UVImage configures the uv bootstrap image used by the built-in init-uv
+                      and init-python containers.
+                    properties:
+                      digest:
+                        description: |-
+                          Digest is the container image digest for supply chain security.
+                          When set, it takes precedence over Tag.
+                        type: string
+                      repository:
+                        default: ghcr.io/astral-sh/uv
+                        description: Repository is the container image repository.
+                        type: string
+                      tag:
+                        default: 0.6-bookworm-slim
+                        description: Tag is the container image tag.
+                        type: string
+                    type: object
                 type: object
             type: object
           status:

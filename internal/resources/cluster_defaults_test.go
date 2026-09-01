@@ -221,6 +221,40 @@ func TestApplyClusterDefaults_RuntimeDepsORMerge(t *testing.T) {
 	}
 }
 
+func TestApplyClusterDefaults_RuntimeDepsUVImagePrecedence(t *testing.T) {
+	defaultImage := &openclawv1alpha1.UVImageSpec{
+		Repository: "mirror.example.com/astral-sh/uv",
+		Digest:     "sha256:default",
+	}
+	defaults := newClusterDefaults(&openclawv1alpha1.OpenClawClusterDefaultsSpec{
+		RuntimeDeps: openclawv1alpha1.RuntimeDepsSpec{UVImage: defaultImage},
+	})
+
+	inherited := ApplyClusterDefaults(newTestInstance("inherits-uv"), defaults)
+	if inherited.Spec.RuntimeDeps.UVImage == nil {
+		t.Fatal("cluster-default uv image was not inherited")
+	}
+	if inherited.Spec.RuntimeDeps.UVImage.Digest != "sha256:default" {
+		t.Errorf("inherited digest = %q, want sha256:default", inherited.Spec.RuntimeDeps.UVImage.Digest)
+	}
+	if inherited.Spec.RuntimeDeps.UVImage == defaultImage {
+		t.Error("inherited uv image must be deep-copied")
+	}
+
+	instance := newTestInstance("overrides-uv")
+	instance.Spec.RuntimeDeps.UVImage = &openclawv1alpha1.UVImageSpec{
+		Repository: "registry.example.com/custom/uv",
+		Tag:        "custom",
+	}
+	overridden := ApplyClusterDefaults(instance, defaults)
+	if overridden.Spec.RuntimeDeps.UVImage.Repository != "registry.example.com/custom/uv" {
+		t.Errorf("instance uv image repository was overridden: %q", overridden.Spec.RuntimeDeps.UVImage.Repository)
+	}
+	if overridden.Spec.RuntimeDeps.UVImage.Tag != "custom" {
+		t.Errorf("instance uv image tag was overridden: %q", overridden.Spec.RuntimeDeps.UVImage.Tag)
+	}
+}
+
 func TestApplyClusterDefaults_DoesNotMutateInstance(t *testing.T) {
 	instance := newTestInstance("immutability")
 	defaults := newClusterDefaults(&openclawv1alpha1.OpenClawClusterDefaultsSpec{

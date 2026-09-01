@@ -56,8 +56,9 @@ type OpenClawClusterDefaultsSpec struct {
 	// (pnpm, Python) applied to instances where the corresponding fields are
 	// unset. A cluster default of true for a runtime dep is always applied
 	// unless the instance explicitly opts out (sets the field to false).
-	// NOTE: because RuntimeDepsSpec fields are plain booleans, "unset" and
-	// "false" are indistinguishable; cluster defaults are OR-merged here.
+	// NOTE: because the enablement fields are plain booleans, "unset" and
+	// "false" are indistinguishable; those fields are OR-merged here. UVImage
+	// follows normal precedence and applies only when the instance omits it.
 	// +optional
 	RuntimeDeps RuntimeDepsSpec `json:"runtimeDeps,omitempty"`
 }

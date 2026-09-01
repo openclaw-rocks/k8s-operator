@@ -936,7 +936,16 @@ spec:
   runtimeDeps:
     pnpm: true    # Installs pnpm via corepack
     python: true  # Installs Python 3.12 + uv
+    uvImage:
+      repository: ghcr.io/astral-sh/uv
+      tag: 0.6-bookworm-slim
+      # digest: sha256:...  # takes precedence over tag
 ```
+
+`uvImage` controls both the always-present `init-uv` bootstrap and the optional
+`init-python` installer. Omit it to retain the defaults above. Set a digest to
+make the bootstrap image reference immutable. Cluster defaults can provide the
+same block, while an instance-level `uvImage` takes precedence.
 
 ### Custom init containers and sidecars
 

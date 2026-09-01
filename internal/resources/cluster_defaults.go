@@ -33,9 +33,10 @@ import (
 //   - Env is the exception. Cluster defaults and instance env are merged by
 //     Name: cluster entries appear first, and any instance entry with the
 //     same Name overrides the cluster default's value in place.
-//   - RuntimeDeps fields are plain booleans so "unset" and "false" are
-//     indistinguishable; cluster defaults are OR-merged (a cluster default
-//     of true always applies unless the instance has already set true).
+//   - RuntimeDeps enablement fields are plain booleans so "unset" and "false"
+//     are indistinguishable; cluster defaults are OR-merged (a cluster default
+//     of true always applies unless the instance has already set true). The uv
+//     image follows normal per-instance precedence.
 //
 // If defaults is nil, the instance is returned unchanged (still deep-copied so
 // callers can safely mutate it for in-memory derivation).
@@ -77,6 +78,9 @@ func ApplyClusterDefaults(instance *openclawv1alpha1.OpenClawInstance, defaults 
 	}
 	if d.RuntimeDeps.Python {
 		out.Spec.RuntimeDeps.Python = true
+	}
+	if out.Spec.RuntimeDeps.UVImage == nil && d.RuntimeDeps.UVImage != nil {
+		out.Spec.RuntimeDeps.UVImage = d.RuntimeDeps.UVImage.DeepCopy()
 	}
 
 	return out

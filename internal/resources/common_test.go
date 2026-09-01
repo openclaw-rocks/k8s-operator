@@ -228,6 +228,50 @@ func TestGetTailscaleImage_WithRegistry(t *testing.T) {
 	}
 }
 
+func TestGetUVImage(t *testing.T) {
+	tests := []struct {
+		name     string
+		image    *openclawv1alpha1.UVImageSpec
+		registry string
+		expected string
+	}{
+		{name: "default image", expected: UvImage},
+		{
+			name: "custom tag",
+			image: &openclawv1alpha1.UVImageSpec{
+				Repository: "registry.example.com/platform/uv",
+				Tag:        "0.7-bookworm-slim",
+			},
+			expected: "registry.example.com/platform/uv:0.7-bookworm-slim",
+		},
+		{
+			name: "digest takes precedence",
+			image: &openclawv1alpha1.UVImageSpec{
+				Repository: "registry.example.com/platform/uv",
+				Tag:        "ignored",
+				Digest:     "sha256:abc123",
+			},
+			expected: "registry.example.com/platform/uv@sha256:abc123",
+		},
+		{
+			name:     "default image with registry override",
+			registry: "mirror.example.com",
+			expected: "mirror.example.com/astral-sh/uv:0.6-bookworm-slim",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := newTestInstance("test")
+			instance.Spec.RuntimeDeps.UVImage = tt.image
+			instance.Spec.Registry = tt.registry
+			if got := GetUVImage(instance); got != tt.expected {
+				t.Errorf("GetUVImage() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestBuildStatefulSet_WithRegistry(t *testing.T) {
 	instance := newTestInstance("test")
 	instance.Spec.Registry = "my-registry.example.com"

@@ -895,8 +895,8 @@ var _ = Describe("Chromium Full Integration Tests", Ordered, func() {
 				"minProtocol": 3,
 				"maxProtocol": 3,
 				"client": map[string]interface{}{
-					// Use control-ui identity with dangerouslyDisableDeviceAuth to
-					// preserve operator scopes without requiring device key pairing.
+					// Use the browser-shaped Control UI client identity. This gated
+					// integration remains sensitive to current device-pairing behavior.
 					"id":       "openclaw-control-ui",
 					"version":  "1.0.0",
 					"platform": "linux",

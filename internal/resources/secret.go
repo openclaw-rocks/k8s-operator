@@ -66,8 +66,8 @@ func BuildBasicAuthSecret(instance *openclawv1alpha1.OpenClawInstance, password 
 }
 
 // BuildGatewayTokenSecret creates a Secret containing the gateway authentication token.
-// The token is used to configure gateway.auth.mode=token so that Bonjour/mDNS pairing
-// (which is unusable in Kubernetes) is bypassed automatically.
+// The token is used to configure gateway.auth.mode=token for shared-secret
+// gateway authentication. Control UI device identity remains a separate check.
 func BuildGatewayTokenSecret(instance *openclawv1alpha1.OpenClawInstance, tokenHex string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{

@@ -416,7 +416,7 @@ func buildMainContainer(instance *openclawv1alpha1.OpenClawInstance, gatewayToke
 func buildMainEnv(instance *openclawv1alpha1.OpenClawInstance, gatewayTokenSecretName string) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "HOME", Value: "/home/openclaw"},
-		// mDNS/Bonjour pairing is unusable in Kubernetes — always disable it
+		// mDNS/Bonjour discovery is unusable in Kubernetes, so disable it.
 		{Name: "OPENCLAW_DISABLE_BONJOUR", Value: "1"},
 		// OpenClaw v2026.3.12 reduced the WebSocket handshake timeout from
 		// ~10s to 3s (GHSA-jv4g-m82p-2j93), which is too short for K8s where

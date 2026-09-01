@@ -757,8 +757,8 @@ func (r *OpenClawInstanceReconciler) isGatewayAuthTrustedProxy(ctx context.Conte
 // reconcileGatewayTokenSecret ensures a gateway token Secret exists for the instance.
 // If spec.gateway.existingSecret is set, the operator uses that Secret instead of
 // auto-generating one. Otherwise, a random 32-byte hex token is generated and stored.
-// The token is used to configure gateway.auth.mode=token so that Bonjour/mDNS
-// pairing (unusable in k8s) is bypassed.
+// The token is used to configure gateway.auth.mode=token for shared-secret
+// gateway authentication. Control UI device identity remains a separate check.
 func (r *OpenClawInstanceReconciler) reconcileGatewayTokenSecret(ctx context.Context, instance *openclawv1alpha1.OpenClawInstance) (string, error) {
 	// If the user provides their own secret, look it up and return its token
 	if instance.Spec.Gateway.ExistingSecret != "" {

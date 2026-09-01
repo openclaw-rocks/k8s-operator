@@ -86,7 +86,7 @@ Every request is validated against the instance's allowlist policy. Protected co
 | **Disk-Aware Readiness** | Opt-in ENOSPC guard | `spec.probes.diskReadiness` renders the readiness probe as an exec check that ANDs the gateway `/readyz` signal with a workspace writability + free-space check, so a full or read-only PVC drains the pod from Service endpoints instead of silently accepting writes it cannot persist. Liveness/startup stay HTTP so a full disk never turns into a CrashLoopBackOff. Defaulted off. |
 | **Backup/Restore** | S3-backed snapshots | Automatic backup to S3-compatible storage on deletion, pre-update, and on a cron schedule; restore into a new instance from any snapshot |
 | **Workspace Seeding** | Initial files & dirs | Pre-populate the workspace with files and directories before the agent starts; reference an external ConfigMap for GitOps workflows |
-| **Gateway Auth** | Auto-generated tokens | Automatic gateway token Secret per instance, bypassing mDNS pairing (unusable in k8s) |
+| **Gateway Auth** | Auto-generated tokens | Automatic shared-secret gateway authentication with a persistent token Secret per instance |
 | **Tailscale** | Tailnet access | Expose via Tailscale Serve or Funnel with SSO auth - no Ingress needed |
 | **Extensible** | Sidecars & init containers | Chromium for browser automation, Ollama for local LLMs, Tailscale for tailnet access, plus custom init containers and sidecars |
 | **Cloud Native** | SA annotations & CA bundles | AWS IRSA / GCP Workload Identity via ServiceAccount annotations; CA bundle injection for corporate proxies |
@@ -310,14 +310,20 @@ spec:
 
 ### Gateway authentication
 
-The operator automatically generates a gateway token Secret for each instance and injects it into both the config JSON (`gateway.auth.mode: token`) and the `OPENCLAW_GATEWAY_TOKEN` env var. This bypasses Bonjour/mDNS pairing, which is unusable in Kubernetes.
+The operator automatically generates a gateway token Secret for each instance and injects it into both the config JSON (`gateway.auth.mode: token`) and the `OPENCLAW_GATEWAY_TOKEN` env var. The token authenticates the gateway connection. A browser's Control UI device identity and one-time pairing are separate security checks.
 
 - The token is generated once and never overwritten - rotate it by editing the Secret directly
 - If you set `gateway.auth.token` in your config or `OPENCLAW_GATEWAY_TOKEN` in `spec.env`, your value takes precedence
 - To bring your own token Secret, set `spec.gateway.existingSecret` - the operator will use it instead of auto-generating one (the Secret must have a key named `token`)
-- The operator automatically sets `gateway.controlUi.dangerouslyDisableDeviceAuth: true` - device pairing is incompatible with Kubernetes (users cannot approve pairing from inside a container, connections are always proxied, and mDNS is unavailable)
-- **Do not set `gateway.mode: local`** in your config - this mode is for desktop installs and enforces device identity checks that cannot work behind a reverse proxy in Kubernetes
-- When connecting to the Control UI through an Ingress, pass the gateway token in the URL fragment: `https://openclaw.example.com/#token=<your-token>`
+- The operator sets `OPENCLAW_DISABLE_BONJOUR=1` because mDNS discovery is not useful in Kubernetes. This does not disable Control UI device identity.
+- The operator sets `gateway.mode: local`, which current OpenClaw releases require for a gateway that owns local state. Exposure remains controlled by the Service, Ingress, mesh, and gateway bind settings.
+- Current OpenClaw releases ignore the retired `gateway.controlUi.dangerouslyDisableDeviceAuth` setting, so the operator does not emit it.
+- On the first browser connection, approve the pending device once from an administrative workstation:
+  ```bash
+  kubectl exec -n <namespace> <instance>-0 -c openclaw -- openclaw devices list
+  kubectl exec -n <namespace> <instance>-0 -c openclaw -- openclaw devices approve <request-id>
+  ```
+- Supplying the gateway token, including in the Control UI, does not replace browser device pairing.
 - Since v2026.2.24, OpenClaw restricts `gateway.allowedOrigins` to same-origin by default - if accessing via a non-default hostname (e.g. Ingress), set `gateway.allowedOrigins: ["*"]` in your config
 
 ### Control UI allowed origins
@@ -522,7 +528,7 @@ spec:
             primary: "anthropic/claude-sonnet-4-20250514"
 ```
 
-**Caveat:** In merge mode, removing a key from the CR does not remove it from the PVC config - the old value persists because deep-merge only adds or updates keys. If you need to remove stale config keys (e.g., after removing `gateway.mode: local`), temporarily switch to `mergeMode: overwrite`, apply, wait for the pod to restart, then switch back to `merge`.
+**Caveat:** In merge mode, removing a key from the CR does not remove it from the PVC config - the old value persists because deep-merge only adds or updates keys. If you need to remove a stale config key, temporarily switch to `mergeMode: overwrite`, apply, wait for the pod to restart, then switch back to `merge`.
 
 ### Partial overwrite under merge mode (`forcePaths`)
 

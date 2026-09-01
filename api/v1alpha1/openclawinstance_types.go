@@ -1494,6 +1494,11 @@ type MetricsSpec struct {
 	// +optional
 	Port *int32 `json:"port,omitempty"`
 
+	// Collector configures the OpenTelemetry Collector sidecar that receives
+	// OTLP metrics from OpenClaw and exposes them for Prometheus scraping.
+	// +optional
+	Collector OTelCollectorSpec `json:"collector,omitempty"`
+
 	// ServiceMonitor configures the Prometheus ServiceMonitor
 	// +optional
 	ServiceMonitor *ServiceMonitorSpec `json:"serviceMonitor,omitempty"`
@@ -1505,6 +1510,35 @@ type MetricsSpec struct {
 	// GrafanaDashboard configures auto-provisioned Grafana dashboard ConfigMaps
 	// +optional
 	GrafanaDashboard *GrafanaDashboardSpec `json:"grafanaDashboard,omitempty"`
+}
+
+// OTelCollectorSpec configures the OpenTelemetry Collector metrics sidecar.
+type OTelCollectorSpec struct {
+	// Image configures the OpenTelemetry Collector container image.
+	// +optional
+	Image OTelCollectorImageSpec `json:"image,omitempty"`
+
+	// Resources specifies compute resources for the OpenTelemetry Collector.
+	// +optional
+	Resources ResourcesSpec `json:"resources,omitempty"`
+}
+
+// OTelCollectorImageSpec defines the OpenTelemetry Collector container image.
+type OTelCollectorImageSpec struct {
+	// Repository is the container image repository.
+	// +kubebuilder:default="otel/opentelemetry-collector"
+	// +optional
+	Repository string `json:"repository,omitempty"`
+
+	// Tag is the container image tag.
+	// +kubebuilder:default="0.120.0"
+	// +optional
+	Tag string `json:"tag,omitempty"`
+
+	// Digest is the container image digest for supply chain security.
+	// When set, it takes precedence over Tag.
+	// +optional
+	Digest string `json:"digest,omitempty"`
 }
 
 // ServiceMonitorSpec defines the ServiceMonitor configuration

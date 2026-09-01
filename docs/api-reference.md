@@ -605,6 +605,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Enabled enables metrics endpoint | true | Optional: \{\} <br /> |
 | `port` _integer_ | Port is the port to expose metrics on | 9090 | Optional: \{\} <br /> |
+| `collector` _[OTelCollectorSpec](#otelcollectorspec)_ | Collector configures the OpenTelemetry Collector sidecar that receives<br />OTLP metrics from OpenClaw and exposes them for Prometheus scraping. |  | Optional: \{\} <br /> |
 | `serviceMonitor` _[ServiceMonitorSpec](#servicemonitorspec)_ | ServiceMonitor configures the Prometheus ServiceMonitor |  | Optional: \{\} <br /> |
 | `prometheusRule` _[PrometheusRuleSpec](#prometheusrulespec)_ | PrometheusRule configures auto-provisioned PrometheusRule alerts |  | Optional: \{\} <br /> |
 | `grafanaDashboard` _[GrafanaDashboardSpec](#grafanadashboardspec)_ | GrafanaDashboard configures auto-provisioned Grafana dashboard ConfigMaps |  | Optional: \{\} <br /> |
@@ -692,6 +693,41 @@ _Appears in:_
 | `ingress` _[IngressSpec](#ingressspec)_ | Ingress configures the Kubernetes Ingress |  | Optional: \{\} <br /> |
 | `httpRoute` _[HTTPRouteSpec](#httproutespec)_ | HTTPRoute configures a Gateway API HTTPRoute.<br />This is an alternative to Ingress for clusters using the Gateway API<br />(gateway.networking.k8s.io). The Gateway API CRDs must be installed. |  | Optional: \{\} <br /> |
 | `metricsIngress` _[MetricsIngressSpec](#metricsingressspec)_ | MetricsIngress controls who may reach the metrics port in the generated<br />NetworkPolicy, independently of application traffic. When unset, the<br />metrics port stays reachable from the instance's own namespace, which is<br />the pre-existing behavior. |  | Optional: \{\} <br /> |
+
+
+#### OTelCollectorImageSpec
+
+
+
+OTelCollectorImageSpec defines the OpenTelemetry Collector container image.
+
+
+
+_Appears in:_
+- [OTelCollectorSpec](#otelcollectorspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `repository` _string_ | Repository is the container image repository. | otel/opentelemetry-collector | Optional: \{\} <br /> |
+| `tag` _string_ | Tag is the container image tag. | 0.120.0 | Optional: \{\} <br /> |
+| `digest` _string_ | Digest is the container image digest for supply chain security.<br />When set, it takes precedence over Tag. |  | Optional: \{\} <br /> |
+
+
+#### OTelCollectorSpec
+
+
+
+OTelCollectorSpec configures the OpenTelemetry Collector metrics sidecar.
+
+
+
+_Appears in:_
+- [MetricsSpec](#metricsspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _[OTelCollectorImageSpec](#otelcollectorimagespec)_ | Image configures the OpenTelemetry Collector container image. |  | Optional: \{\} <br /> |
+| `resources` _[ResourcesSpec](#resourcesspec)_ | Resources specifies compute resources for the OpenTelemetry Collector. |  | Optional: \{\} <br /> |
 
 
 #### ObservabilitySpec
@@ -1119,6 +1155,7 @@ ResourcesSpec defines compute resource requirements
 _Appears in:_
 - [ChromiumSpec](#chromiumspec)
 - [NetBirdSpec](#netbirdspec)
+- [OTelCollectorSpec](#otelcollectorspec)
 - [OllamaSpec](#ollamaspec)
 - [OpenClawInstanceSpec](#openclawinstancespec)
 - [TailscaleSpec](#tailscalespec)

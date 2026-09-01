@@ -5590,6 +5590,57 @@ spec:
                   metrics:
                     description: Metrics configures Prometheus metrics
                     properties:
+                      collector:
+                        description: |-
+                          Collector configures the OpenTelemetry Collector sidecar that receives
+                          OTLP metrics from OpenClaw and exposes them for Prometheus scraping.
+                        properties:
+                          image:
+                            description: Image configures the OpenTelemetry Collector
+                              container image.
+                            properties:
+                              digest:
+                                description: |-
+                                  Digest is the container image digest for supply chain security.
+                                  When set, it takes precedence over Tag.
+                                type: string
+                              repository:
+                                default: otel/opentelemetry-collector
+                                description: Repository is the container image repository.
+                                type: string
+                              tag:
+                                default: 0.120.0
+                                description: Tag is the container image tag.
+                                type: string
+                            type: object
+                          resources:
+                            description: Resources specifies compute resources for
+                              the OpenTelemetry Collector.
+                            properties:
+                              limits:
+                                description: Limits describes the maximum amount of
+                                  compute resources allowed
+                                properties:
+                                  cpu:
+                                    description: CPU resource (e.g., "500m", "2")
+                                    type: string
+                                  memory:
+                                    description: Memory resource (e.g., "512Mi", "2Gi")
+                                    type: string
+                                type: object
+                              requests:
+                                description: Requests describes the minimum amount
+                                  of compute resources required
+                                properties:
+                                  cpu:
+                                    description: CPU resource (e.g., "500m", "2")
+                                    type: string
+                                  memory:
+                                    description: Memory resource (e.g., "512Mi", "2Gi")
+                                    type: string
+                                type: object
+                            type: object
+                        type: object
                       enabled:
                         default: true
                         description: Enabled enables metrics endpoint

@@ -45,7 +45,7 @@ func BuildConfigMap(instance *openclawv1alpha1.OpenClawInstance, gatewayToken st
 // BuildConfigMapFromBytes creates a ConfigMap for the OpenClawInstance using
 // the provided base config bytes. This allows the controller to pass config
 // from any source (inline raw, external ConfigMap, or empty default).
-// The enrichment pipeline (OTel metrics, gateway auth, device auth, tailscale,
+// The enrichment pipeline (OTel metrics, gateway auth, tailscale,
 // browser, gateway bind, skill packs) always runs on the provided bytes.
 func BuildConfigMapFromBytes(instance *openclawv1alpha1.OpenClawInstance, baseConfig []byte, gatewayToken string, skillPacks *ResolvedSkillPacks) *corev1.ConfigMap {
 	labels := Labels(instance)
@@ -55,7 +55,7 @@ func BuildConfigMapFromBytes(instance *openclawv1alpha1.OpenClawInstance, baseCo
 		configBytes = []byte("{}")
 	}
 
-	// Enrichment pipeline: gateway mode -> OTel metrics -> gateway auth -> device auth -> tailscale -> browser -> gateway bind -> trusted proxies -> control UI origins -> skill packs
+	// Enrichment pipeline: gateway mode -> OTel metrics -> gateway auth -> tailscale -> browser -> gateway bind -> trusted proxies -> control UI origins -> skill packs
 	if enriched, err := enrichConfigWithGatewayMode(configBytes); err == nil {
 		configBytes = enriched
 	}
@@ -68,9 +68,6 @@ func BuildConfigMapFromBytes(instance *openclawv1alpha1.OpenClawInstance, baseCo
 		if enriched, err := enrichConfigWithGatewayAuth(configBytes, gatewayToken); err == nil {
 			configBytes = enriched
 		}
-	}
-	if enriched, err := enrichConfigWithDeviceAuth(configBytes); err == nil {
-		configBytes = enriched
 	}
 	// Mesh provider config enrichment, e.g. Tailscale SSO auth mode (#560)
 	if mesh := ActiveMeshProvider(instance); mesh != nil {
@@ -283,39 +280,6 @@ service:
       receivers: [otlp]
       exporters: [prometheus]
 `, OTelHTTPReceiverPort, MetricsPort(instance))
-}
-
-// enrichConfigWithDeviceAuth injects gateway.controlUi.dangerouslyDisableDeviceAuth=true
-// into the config JSON. Device pairing is fundamentally incompatible with Kubernetes
-// because (1) users cannot approve pairing from inside a container, (2) connections
-// always come through the nginx proxy sidecar (non-local), and (3) mDNS does not work
-// in K8s. If the user has already set the field, the config is returned unchanged.
-func enrichConfigWithDeviceAuth(configJSON []byte) ([]byte, error) {
-	var config map[string]interface{}
-	if err := json.Unmarshal(configJSON, &config); err != nil {
-		return configJSON, nil // not a JSON object, return unchanged
-	}
-
-	gw, _ := config["gateway"].(map[string]interface{})
-	if gw == nil {
-		gw = make(map[string]interface{})
-	}
-
-	controlUI, _ := gw["controlUi"].(map[string]interface{})
-	if controlUI == nil {
-		controlUI = make(map[string]interface{})
-	}
-
-	// If the user already set dangerouslyDisableDeviceAuth, don't override
-	if _, ok := controlUI["dangerouslyDisableDeviceAuth"]; ok {
-		return configJSON, nil
-	}
-
-	controlUI["dangerouslyDisableDeviceAuth"] = true
-	gw["controlUi"] = controlUI
-	config["gateway"] = gw
-
-	return json.Marshal(config)
 }
 
 // enrichConfigWithTailscale injects Tailscale-related settings into the config JSON.

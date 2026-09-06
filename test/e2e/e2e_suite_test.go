@@ -568,11 +568,12 @@ var _ = Describe("OpenClawInstance Controller", func() {
 			Expect(ok).To(BeTrue(), "config should have gateway key")
 			Expect(gw["bind"]).To(Equal("loopback"), "gateway.bind should be loopback")
 
-			// Device auth should be disabled (incompatible with K8s)
-			controlUI, ok := gw["controlUi"].(map[string]interface{})
-			Expect(ok).To(BeTrue(), "gateway should have controlUi key")
-			Expect(controlUI["dangerouslyDisableDeviceAuth"]).To(Equal(true),
-				"gateway.controlUi.dangerouslyDisableDeviceAuth should be true")
+			// The operator must not emit OpenClaw's retired device-auth bypass.
+			if controlUI, ok := gw["controlUi"].(map[string]interface{}); ok {
+				_, hasRetiredBypass := controlUI["dangerouslyDisableDeviceAuth"]
+				Expect(hasRetiredBypass).To(BeFalse(),
+					"gateway.controlUi.dangerouslyDisableDeviceAuth should not be emitted")
+			}
 
 			// Clean up via owner-reference garbage collection
 			Expect(k8sClient.Delete(ctx, instance)).Should(Succeed())
@@ -2406,11 +2407,12 @@ var _ = Describe("OpenClawInstance Controller", func() {
 			Expect(auth["mode"]).To(Equal("token"), "gateway.auth.mode should be token")
 			Expect(auth["token"]).NotTo(BeEmpty(), "gateway.auth.token should be set")
 
-			// Device auth should be disabled (incompatible with K8s)
-			controlUI, ok := gw["controlUi"].(map[string]interface{})
-			Expect(ok).To(BeTrue(), "gateway should have controlUi key (injected by operator)")
-			Expect(controlUI["dangerouslyDisableDeviceAuth"]).To(Equal(true),
-				"gateway.controlUi.dangerouslyDisableDeviceAuth should be true")
+			// The operator must not emit OpenClaw's retired device-auth bypass.
+			if controlUI, ok := gw["controlUi"].(map[string]interface{}); ok {
+				_, hasRetiredBypass := controlUI["dangerouslyDisableDeviceAuth"]
+				Expect(hasRetiredBypass).To(BeFalse(),
+					"gateway.controlUi.dangerouslyDisableDeviceAuth should not be emitted")
+			}
 
 			// Verify StatefulSet config volume points to operator-managed CM (not external)
 			statefulSet := &appsv1.StatefulSet{}

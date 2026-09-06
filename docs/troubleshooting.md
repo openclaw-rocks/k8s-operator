@@ -367,27 +367,21 @@ kubectl describe pvc my-assistant-data -n openclaw
 
 ### Control UI Shows "device identity required"
 
-**Symptoms**: Connecting to the Control UI through an Ingress fails with `code=1008 reason=device identity required` in the OpenClaw logs.
+**Symptoms**: The first Control UI connection through an Ingress fails with `code=1008 reason=device identity required`, and the UI says that device pairing is required.
 
-**Possible causes and solutions**:
+This is the expected one-time browser pairing flow. Gateway token or trusted-proxy authentication admits the connection, while the browser device identity grants its scopes.
 
-1. **`gateway.mode: local` is set in the config**: This mode enforces browser-based device identity verification, which is incompatible with Kubernetes. Remove `gateway.mode` from your CR's `spec.config.raw` - the operator defaults to server mode which is correct for K8s.
-
-2. **Stale config from merge mode**: If you previously had `gateway.mode: local` in your config and are using `mergeMode: merge`, the old key persists on the PVC even after removing it from the CR. Temporarily set `mergeMode: replace` to wipe stale keys:
-   ```yaml
-   spec:
-     config:
-       mergeMode: replace  # temporarily set, then switch back to merge
-   ```
-
-3. **Upstream OpenClaw bug**: Even with `dangerouslyDisableDeviceAuth: true` (which the operator injects automatically), some OpenClaw versions still enforce device identity. **Workaround**: Pass the gateway token directly in the URL fragment:
-   ```
-   https://openclaw.example.com/#token=<your-gateway-token>
-   ```
-   You can find the token in the auto-generated Secret:
+1. Reload the Control UI once so it creates a pending request.
+2. List and approve the request from an administrative workstation:
    ```bash
-   kubectl get secret <instance>-gateway-token -n <namespace> -o jsonpath='{.data.token}' | base64 -d
+   kubectl exec -n <namespace> <instance>-0 -c openclaw -- openclaw devices list
+   kubectl exec -n <namespace> <instance>-0 -c openclaw -- openclaw devices approve <request-id>
    ```
+3. Reconnect after approval completes.
+
+Do not add `gateway.controlUi.dangerouslyDisableDeviceAuth`; current OpenClaw releases treat that setting as retired and inert. Supplying the gateway token does not replace device pairing.
+
+If no pending request appears, verify that the reverse proxy preserves the WebSocket upgrade and any trusted identity headers, check `gateway.controlUi.allowedOrigins`, and inspect the OpenClaw container logs.
 
 ### Gateway Proxy "Connection Refused" on Startup
 

@@ -52,8 +52,12 @@ const (
 	// canvas traffic. The Service targets this port instead of CanvasPort.
 	CanvasProxyPort = 18794
 
-	// DefaultGatewayProxyImage is the default image for the gateway proxy sidecar
-	DefaultGatewayProxyImage = "docker.io/library/nginx:1.27-alpine"
+	// DefaultGatewayProxyImageRepository is the default gateway proxy image repository.
+	DefaultGatewayProxyImageRepository = "docker.io/library/nginx"
+	// DefaultGatewayProxyImageTag is the default gateway proxy image tag.
+	DefaultGatewayProxyImageTag = "1.27-alpine"
+	// DefaultGatewayProxyImage is the default image for the gateway proxy sidecar.
+	DefaultGatewayProxyImage = DefaultGatewayProxyImageRepository + ":" + DefaultGatewayProxyImageTag
 
 	// NginxConfigKey is the ConfigMap data key for the nginx stream config
 	NginxConfigKey = "nginx.conf"
@@ -458,6 +462,27 @@ func GetTailscaleImage(instance *openclawv1alpha1.OpenClawInstance) string {
 		}
 		image = repo + ":" + tag
 	}
+	return ApplyRegistryOverride(image, instance.Spec.Registry)
+}
+
+// GetGatewayProxyImage returns the full gateway proxy image reference.
+func GetGatewayProxyImage(instance *openclawv1alpha1.OpenClawInstance) string {
+	repo := instance.Spec.Gateway.Image.Repository
+	if repo == "" {
+		repo = DefaultGatewayProxyImageRepository
+	}
+
+	var image string
+	if instance.Spec.Gateway.Image.Digest != "" {
+		image = repo + "@" + instance.Spec.Gateway.Image.Digest
+	} else {
+		tag := instance.Spec.Gateway.Image.Tag
+		if tag == "" {
+			tag = DefaultGatewayProxyImageTag
+		}
+		image = repo + ":" + tag
+	}
+
 	return ApplyRegistryOverride(image, instance.Spec.Registry)
 }
 

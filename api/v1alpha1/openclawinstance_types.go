@@ -1709,6 +1709,14 @@ type GatewaySpec struct {
 	// +kubebuilder:default=true
 	Enabled *bool `json:"enabled,omitempty"`
 
+	// Image configures the built-in gateway proxy container image.
+	// +optional
+	Image GatewayProxyImageSpec `json:"image,omitempty"`
+
+	// Resources specifies compute resources for the built-in gateway proxy.
+	// +optional
+	Resources ResourcesSpec `json:"resources,omitempty"`
+
 	// ExistingSecret is the name of a user-managed Secret containing the gateway token.
 	// The Secret must have a key named "token". When set, the operator skips
 	// auto-generating a gateway token Secret and uses this Secret instead.
@@ -1722,6 +1730,24 @@ type GatewaySpec struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	ControlUIOrigins []string `json:"controlUiOrigins,omitempty"`
+}
+
+// GatewayProxyImageSpec defines the built-in gateway proxy container image.
+type GatewayProxyImageSpec struct {
+	// Repository is the container image repository.
+	// +kubebuilder:default="docker.io/library/nginx"
+	// +optional
+	Repository string `json:"repository,omitempty"`
+
+	// Tag is the container image tag.
+	// +kubebuilder:default="1.27-alpine"
+	// +optional
+	Tag string `json:"tag,omitempty"`
+
+	// Digest is the container image digest for supply chain security.
+	// When set, it takes precedence over Tag.
+	// +optional
+	Digest string `json:"digest,omitempty"`
 }
 
 // AutoUpdateStatus tracks the state of automatic version updates

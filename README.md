@@ -283,6 +283,24 @@ Config changes are detected via SHA-256 hashing and automatically trigger a roll
 
 By default, each pod includes an nginx reverse proxy sidecar that forwards traffic to the OpenClaw gateway on loopback. Set `spec.gateway.enabled: false` to disable it:
 
+```yaml
+spec:
+  gateway:
+    image:
+      repository: docker.io/library/nginx
+      tag: 1.27-alpine
+      # digest: sha256:...  # takes precedence over tag
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+```
+
+The image and resource fields are optional. Omit them to retain the defaults above, or set an image digest to make the proxy supply-chain reference immutable.
+
 - Health probes and Service ports target the gateway directly on port 18789
 - `gateway.bind` is set to `0.0.0.0` instead of loopback
 - The `gateway-proxy` container and its tmp volume are omitted from the pod

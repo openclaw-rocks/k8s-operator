@@ -307,6 +307,24 @@ _Appears in:_
 | `minFree` _string_ | MinFree is the minimum free space the workspace volume must have for the<br />pod to be considered Ready, expressed as a Kubernetes quantity<br />(e.g. "100Mi", "1Gi"). Defaults to "64Mi". |  | Optional: \{\} <br /> |
 
 
+#### GatewayProxyImageSpec
+
+
+
+GatewayProxyImageSpec defines the built-in gateway proxy container image.
+
+
+
+_Appears in:_
+- [GatewaySpec](#gatewayspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `repository` _string_ | Repository is the container image repository. | docker.io/library/nginx | Optional: \{\} <br /> |
+| `tag` _string_ | Tag is the container image tag. | 1.27-alpine | Optional: \{\} <br /> |
+| `digest` _string_ | Digest is the container image digest for supply chain security.<br />When set, it takes precedence over Tag. |  | Optional: \{\} <br /> |
+
+
 #### GatewaySpec
 
 
@@ -321,6 +339,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Enabled controls whether the built-in gateway reverse proxy sidecar is<br />injected into the pod. When false, no proxy container is added and health<br />probes target the OpenClaw gateway directly on port 18789.<br />Defaults to true. | true | Optional: \{\} <br /> |
+| `image` _[GatewayProxyImageSpec](#gatewayproxyimagespec)_ | Image configures the built-in gateway proxy container image. |  | Optional: \{\} <br /> |
+| `resources` _[ResourcesSpec](#resourcesspec)_ | Resources specifies compute resources for the built-in gateway proxy. |  | Optional: \{\} <br /> |
 | `existingSecret` _string_ | ExistingSecret is the name of a user-managed Secret containing the gateway token.<br />The Secret must have a key named "token". When set, the operator skips<br />auto-generating a gateway token Secret and uses this Secret instead. |  | Optional: \{\} <br /> |
 | `controlUiOrigins` _string array_ | ControlUiOrigins is a list of additional allowed origins for the Control UI.<br />The operator always auto-injects localhost origins (http://localhost:18789,<br />http://127.0.0.1:18789) and derives origins from ingress hosts. Use this<br />field to add extra origins (e.g., custom reverse proxy URLs). |  | MaxItems: 20 <br />Optional: \{\} <br /> |
 
@@ -1118,6 +1138,7 @@ ResourcesSpec defines compute resource requirements
 
 _Appears in:_
 - [ChromiumSpec](#chromiumspec)
+- [GatewaySpec](#gatewayspec)
 - [NetBirdSpec](#netbirdspec)
 - [OllamaSpec](#ollamaspec)
 - [OpenClawInstanceSpec](#openclawinstancespec)

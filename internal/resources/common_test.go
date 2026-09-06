@@ -228,6 +228,53 @@ func TestGetTailscaleImage_WithRegistry(t *testing.T) {
 	}
 }
 
+func TestGetGatewayProxyImage(t *testing.T) {
+	tests := []struct {
+		name     string
+		image    openclawv1alpha1.GatewayProxyImageSpec
+		registry string
+		expected string
+	}{
+		{
+			name:     "default image",
+			expected: DefaultGatewayProxyImage,
+		},
+		{
+			name: "custom tag",
+			image: openclawv1alpha1.GatewayProxyImageSpec{
+				Repository: "registry.example.com/platform/nginx",
+				Tag:        "1.28-alpine",
+			},
+			expected: "registry.example.com/platform/nginx:1.28-alpine",
+		},
+		{
+			name: "digest takes precedence",
+			image: openclawv1alpha1.GatewayProxyImageSpec{
+				Repository: "registry.example.com/platform/nginx",
+				Tag:        "ignored",
+				Digest:     "sha256:abc123",
+			},
+			expected: "registry.example.com/platform/nginx@sha256:abc123",
+		},
+		{
+			name:     "default image with registry override",
+			registry: "mirror.example.com",
+			expected: "mirror.example.com/nginx:1.27-alpine",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := newTestInstance("test")
+			instance.Spec.Gateway.Image = tt.image
+			instance.Spec.Registry = tt.registry
+			if got := GetGatewayProxyImage(instance); got != tt.expected {
+				t.Errorf("GetGatewayProxyImage() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestBuildStatefulSet_WithRegistry(t *testing.T) {
 	instance := newTestInstance("test")
 	instance.Spec.Registry = "my-registry.example.com"

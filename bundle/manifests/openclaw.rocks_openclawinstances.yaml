@@ -3667,6 +3667,51 @@ spec:
                       The Secret must have a key named "token". When set, the operator skips
                       auto-generating a gateway token Secret and uses this Secret instead.
                     type: string
+                  image:
+                    description: Image configures the built-in gateway proxy container
+                      image.
+                    properties:
+                      digest:
+                        description: |-
+                          Digest is the container image digest for supply chain security.
+                          When set, it takes precedence over Tag.
+                        type: string
+                      repository:
+                        default: docker.io/library/nginx
+                        description: Repository is the container image repository.
+                        type: string
+                      tag:
+                        default: 1.27-alpine
+                        description: Tag is the container image tag.
+                        type: string
+                    type: object
+                  resources:
+                    description: Resources specifies compute resources for the built-in
+                      gateway proxy.
+                    properties:
+                      limits:
+                        description: Limits describes the maximum amount of compute
+                          resources allowed
+                        properties:
+                          cpu:
+                            description: CPU resource (e.g., "500m", "2")
+                            type: string
+                          memory:
+                            description: Memory resource (e.g., "512Mi", "2Gi")
+                            type: string
+                        type: object
+                      requests:
+                        description: Requests describes the minimum amount of compute
+                          resources required
+                        properties:
+                          cpu:
+                            description: CPU resource (e.g., "500m", "2")
+                            type: string
+                          memory:
+                            description: Memory resource (e.g., "512Mi", "2Gi")
+                            type: string
+                        type: object
+                    type: object
                 type: object
               image:
                 description: Image configuration for the OpenClaw container

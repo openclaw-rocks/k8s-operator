@@ -47,6 +47,17 @@ func newTestInstance(name string) *openclawv1alpha1.OpenClawInstance {
 	}
 }
 
+func assertResourceQuantity(t *testing.T, resources corev1.ResourceList, name corev1.ResourceName, expected string) {
+	t.Helper()
+	got, ok := resources[name]
+	if !ok {
+		t.Fatalf("resource %s not found", name)
+	}
+	if got.Cmp(resource.MustParse(expected)) != 0 {
+		t.Errorf("resource %s = %s, want %s", name, got.String(), expected)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // common.go tests
 // ---------------------------------------------------------------------------
@@ -11637,6 +11648,46 @@ func TestBuildStatefulSet_HasGatewayProxyContainer(t *testing.T) {
 	if memReq.Cmp(resource.MustParse("16Mi")) != 0 {
 		t.Errorf("proxy memory request = %v, want 16Mi", memReq.String())
 	}
+	cpuLimit := proxy.Resources.Limits[corev1.ResourceCPU]
+	if cpuLimit.String() != "100m" {
+		t.Errorf("proxy cpu limit = %v, want 100m", cpuLimit.String())
+	}
+	memLimit := proxy.Resources.Limits[corev1.ResourceMemory]
+	if memLimit.Cmp(resource.MustParse("64Mi")) != 0 {
+		t.Errorf("proxy memory limit = %v, want 64Mi", memLimit.String())
+	}
+}
+
+func TestBuildStatefulSet_GatewayProxyCustomImageAndResources(t *testing.T) {
+	instance := newTestInstance("gw-proxy-custom")
+	instance.Spec.Gateway.Image = openclawv1alpha1.GatewayProxyImageSpec{
+		Repository: "registry.example.com/platform/nginx",
+		Digest:     "sha256:abc123",
+	}
+	instance.Spec.Gateway.Resources = openclawv1alpha1.ResourcesSpec{
+		Requests: openclawv1alpha1.ResourceList{CPU: "25m", Memory: "32Mi"},
+		Limits:   openclawv1alpha1.ResourceList{CPU: "250m", Memory: "128Mi"},
+	}
+
+	sts := BuildStatefulSet(instance, "", nil, nil, nil)
+	var proxy *corev1.Container
+	for i := range sts.Spec.Template.Spec.Containers {
+		if sts.Spec.Template.Spec.Containers[i].Name == "gateway-proxy" {
+			proxy = &sts.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if proxy == nil {
+		t.Fatal("gateway-proxy container not found")
+	}
+
+	if proxy.Image != "registry.example.com/platform/nginx@sha256:abc123" {
+		t.Errorf("proxy image = %q, want digest-pinned custom image", proxy.Image)
+	}
+	assertResourceQuantity(t, proxy.Resources.Requests, corev1.ResourceCPU, "25m")
+	assertResourceQuantity(t, proxy.Resources.Requests, corev1.ResourceMemory, "32Mi")
+	assertResourceQuantity(t, proxy.Resources.Limits, corev1.ResourceCPU, "250m")
+	assertResourceQuantity(t, proxy.Resources.Limits, corev1.ResourceMemory, "128Mi")
 }
 
 func TestBuildStatefulSet_GatewayProxyTmpVolume(t *testing.T) {

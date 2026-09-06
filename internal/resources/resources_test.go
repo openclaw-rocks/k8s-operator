@@ -2757,6 +2757,15 @@ func TestBuildStatefulSet_OTelCollectorContainer(t *testing.T) {
 			continue
 		}
 		found = true
+		if c.Image != DefaultOTelCollectorImage+":"+DefaultOTelCollectorTag {
+			t.Errorf("otel-collector image = %q, want default image", c.Image)
+		}
+		if c.Resources.Requests.Cpu().Cmp(resource.MustParse("25m")) != 0 ||
+			c.Resources.Requests.Memory().Cmp(resource.MustParse("32Mi")) != 0 ||
+			c.Resources.Limits.Cpu().Cmp(resource.MustParse("100m")) != 0 ||
+			c.Resources.Limits.Memory().Cmp(resource.MustParse("128Mi")) != 0 {
+			t.Errorf("otel-collector resources = %#v, want defaults", c.Resources)
+		}
 		// Verify metrics port is on the collector
 		assertContainerPort(t, c.Ports, "metrics", DefaultMetricsPort)
 		// Verify config volume mount (directory mount, no SubPath)
@@ -2779,6 +2788,77 @@ func TestBuildStatefulSet_OTelCollectorContainer(t *testing.T) {
 	}
 	if !found {
 		t.Error("StatefulSet should have otel-collector container when metrics enabled")
+	}
+}
+
+func TestBuildStatefulSet_OTelCollectorOverrides(t *testing.T) {
+	tests := []struct {
+		name     string
+		image    openclawv1alpha1.OTelCollectorImageSpec
+		registry string
+		want     string
+	}{
+		{
+			name: "repository and tag",
+			image: openclawv1alpha1.OTelCollectorImageSpec{
+				Repository: "example.com/otel/collector",
+				Tag:        "1.2.3",
+			},
+			want: "example.com/otel/collector:1.2.3",
+		},
+		{
+			name: "digest takes precedence",
+			image: openclawv1alpha1.OTelCollectorImageSpec{
+				Repository: "example.com/otel/collector",
+				Tag:        "ignored",
+				Digest:     "sha256:collectorhash",
+			},
+			want: "example.com/otel/collector@sha256:collectorhash",
+		},
+		{
+			name:     "global registry override",
+			registry: "mirror.example.com",
+			image: openclawv1alpha1.OTelCollectorImageSpec{
+				Repository: "otel/opentelemetry-collector",
+				Digest:     "sha256:collectorhash",
+			},
+			want: "mirror.example.com/otel/opentelemetry-collector@sha256:collectorhash",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := newTestInstance("sts-otel-collector-overrides")
+			instance.Spec.Registry = tt.registry
+			instance.Spec.Observability.Metrics.Collector = openclawv1alpha1.OTelCollectorSpec{
+				Image: tt.image,
+				Resources: openclawv1alpha1.ResourcesSpec{
+					Requests: openclawv1alpha1.ResourceList{CPU: "40m", Memory: "96Mi"},
+					Limits:   openclawv1alpha1.ResourceList{CPU: "250m", Memory: "256Mi"},
+				},
+			}
+
+			sts := BuildStatefulSet(instance, "", nil, nil, nil)
+			var collector *corev1.Container
+			for i := range sts.Spec.Template.Spec.Containers {
+				if sts.Spec.Template.Spec.Containers[i].Name == "otel-collector" {
+					collector = &sts.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			if collector == nil {
+				t.Fatal("otel-collector container not found")
+			}
+			if collector.Image != tt.want {
+				t.Errorf("otel-collector image = %q, want %q", collector.Image, tt.want)
+			}
+			if collector.Resources.Requests.Cpu().Cmp(resource.MustParse("40m")) != 0 ||
+				collector.Resources.Requests.Memory().Cmp(resource.MustParse("96Mi")) != 0 ||
+				collector.Resources.Limits.Cpu().Cmp(resource.MustParse("250m")) != 0 ||
+				collector.Resources.Limits.Memory().Cmp(resource.MustParse("256Mi")) != 0 {
+				t.Errorf("otel-collector resources = %#v, want configured values", collector.Resources)
+			}
+		})
 	}
 }
 

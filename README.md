@@ -1255,6 +1255,28 @@ If you already set `diagnostics.otel` in your instance config, the operator fill
 | explicit `endpoint` | your endpoint is preserved |
 | explicit `enabled: false` | left untouched; no endpoint is injected |
 
+### Collector image and resources
+
+The collector keeps conservative defaults when `collector` is omitted. Override its image or resources when you need an immutable image reference, a registry mirror, or a larger workload-specific envelope:
+
+```yaml
+spec:
+  observability:
+    metrics:
+      collector:
+        image:
+          repository: otel/opentelemetry-collector
+          tag: "0.120.0"
+          # digest: sha256:...  # takes precedence over tag
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+```
+
 ### ServiceMonitor
 
 ```yaml

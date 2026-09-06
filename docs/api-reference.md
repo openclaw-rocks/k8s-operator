@@ -670,6 +670,7 @@ _Appears in:_
 | `enabled` _boolean_ | Enabled enables network policy creation | true | Optional: \{\} <br /> |
 | `allowedIngressCIDRs` _string array_ | AllowedIngressCIDRs is a list of CIDRs allowed to access this instance |  | Optional: \{\} <br /> |
 | `allowedIngressNamespaces` _string array_ | AllowedIngressNamespaces is a list of namespace names allowed to access this instance |  | Optional: \{\} <br /> |
+| `allowSameNamespaceIngress` _boolean_ | AllowSameNamespaceIngress allows application traffic from all pods in the instance namespace.<br />Disable this when application ingress is fully described by the explicit namespace or CIDR lists.<br />Metrics ingress is configured independently through networking.metricsIngress. | true | Optional: \{\} <br /> |
 | `allowedEgressCIDRs` _string array_ | AllowedEgressCIDRs is a list of CIDRs this instance can reach<br />Default allows all egress on port 443 for AI APIs |  | Optional: \{\} <br /> |
 | `allowDNS` _boolean_ | AllowDNS allows DNS resolution (port 53) | true | Optional: \{\} <br /> |
 | `additionalEgress` _[NetworkPolicyEgressRule](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#networkpolicyegressrule-v1-networking) array_ | AdditionalEgress appends custom egress rules to the default DNS + HTTPS rules.<br />Use this to allow traffic to cluster-internal services on non-standard ports. |  | Optional: \{\} <br /> |

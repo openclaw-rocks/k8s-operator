@@ -1837,6 +1837,56 @@ func TestBuildNetworkPolicy_Default(t *testing.T) {
 	}
 }
 
+func TestBuildNetworkPolicy_SameNamespaceIngressDisabled(t *testing.T) {
+	instance := newTestInstance("np-explicit-ingress")
+	instance.Spec.Security.NetworkPolicy.AllowSameNamespaceIngress = Ptr(false)
+	instance.Spec.Security.NetworkPolicy.AllowedIngressNamespaces = []string{"ingress-system"}
+	instance.Spec.Observability.Metrics.Enabled = Ptr(false)
+
+	np := BuildNetworkPolicy(instance)
+	if len(np.Spec.Ingress) != 1 {
+		t.Fatalf("expected only the explicit ingress rule, got %d", len(np.Spec.Ingress))
+	}
+
+	peer := np.Spec.Ingress[0].From[0]
+	if peer.NamespaceSelector == nil {
+		t.Fatal("explicit ingress rule should have a namespace selector")
+	}
+	if got := peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"]; got != "ingress-system" {
+		t.Errorf("ingress namespace selector = %q, want ingress-system", got)
+	}
+	if len(np.Spec.Ingress[0].Ports) != 2 {
+		t.Fatalf("explicit ingress rule has %d ports, want 2", len(np.Spec.Ingress[0].Ports))
+	}
+	assertNPPort(t, np.Spec.Ingress[0].Ports, GatewayProxyPort)
+	assertNPPort(t, np.Spec.Ingress[0].Ports, CanvasProxyPort)
+}
+
+func TestBuildNetworkPolicy_SameNamespaceIngressDisabledKeepsMetricsPolicy(t *testing.T) {
+	instance := newTestInstance("np-explicit-metrics")
+	instance.Spec.Security.NetworkPolicy.AllowSameNamespaceIngress = Ptr(false)
+	instance.Spec.Networking.MetricsIngress = &openclawv1alpha1.MetricsIngressSpec{
+		From:              openclawv1alpha1.MetricsIngressFromAllowedPeers,
+		AllowedNamespaces: []string{"monitoring"},
+	}
+
+	np := BuildNetworkPolicy(instance)
+	rules := metricsIngressRules(np, int(DefaultMetricsPort))
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 metrics ingress rule, got %d", len(rules))
+	}
+	peer := rules[0].From[0]
+	if peer.NamespaceSelector == nil ||
+		peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] != "monitoring" {
+		t.Errorf("metrics rule should allow the monitoring namespace, got %v", peer)
+	}
+	for i, rule := range np.Spec.Ingress {
+		if ruleHasPort(rule, GatewayProxyPort) || ruleHasPort(rule, CanvasProxyPort) {
+			t.Errorf("rule %d should not retain implicit same-namespace application ports", i)
+		}
+	}
+}
+
 func TestBuildNetworkPolicy_CustomServicePorts(t *testing.T) {
 	instance := newTestInstance("np-custom-ports")
 	instance.Spec.Networking.Service.Ports = []openclawv1alpha1.ServicePortSpec{

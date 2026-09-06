@@ -653,6 +653,13 @@ type NetworkPolicySpec struct {
 	// +optional
 	AllowedIngressNamespaces []string `json:"allowedIngressNamespaces,omitempty"`
 
+	// AllowSameNamespaceIngress allows application traffic from all pods in the instance namespace.
+	// Disable this when application ingress is fully described by the explicit namespace or CIDR lists.
+	// Metrics ingress is configured independently through networking.metricsIngress.
+	// +kubebuilder:default=true
+	// +optional
+	AllowSameNamespaceIngress *bool `json:"allowSameNamespaceIngress,omitempty"`
+
 	// AllowedEgressCIDRs is a list of CIDRs this instance can reach
 	// Default allows all egress on port 443 for AI APIs
 	// +optional

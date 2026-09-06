@@ -1536,7 +1536,7 @@ echo "uv $(/data/.local/bin/uv --version) installed"`
 
 	return corev1.Container{
 		Name:                     "init-uv",
-		Image:                    ApplyRegistryOverride(UvImage, instance.Spec.Registry),
+		Image:                    GetUVImage(instance),
 		Command:                  []string{"sh", "-c", script},
 		ImagePullPolicy:          corev1.PullIfNotPresent,
 		TerminationMessagePath:   corev1.TerminationMessagePathDefault,
@@ -1694,7 +1694,7 @@ uv --version`
 
 	return corev1.Container{
 		Name:                     "init-python",
-		Image:                    ApplyRegistryOverride(UvImage, instance.Spec.Registry),
+		Image:                    GetUVImage(instance),
 		Command:                  []string{"sh", "-c", script},
 		ImagePullPolicy:          corev1.PullIfNotPresent,
 		Env:                      env,

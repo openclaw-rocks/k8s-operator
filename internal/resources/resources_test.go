@@ -8184,6 +8184,33 @@ func TestBuildStatefulSet_RuntimeDeps_Python(t *testing.T) {
 	}
 }
 
+func TestBuildStatefulSet_RuntimeDeps_CustomUVImage(t *testing.T) {
+	instance := newTestInstance("custom-uv")
+	instance.Spec.RuntimeDeps.Python = true
+	instance.Spec.RuntimeDeps.UVImage = &openclawv1alpha1.UVImageSpec{
+		Repository: "registry.example.com/platform/uv",
+		Digest:     "sha256:abc123",
+	}
+
+	sts := BuildStatefulSet(instance, "", nil, nil, nil)
+	want := "registry.example.com/platform/uv@sha256:abc123"
+	seen := map[string]bool{"init-uv": false, "init-python": false}
+	for _, container := range sts.Spec.Template.Spec.InitContainers {
+		if _, ok := seen[container.Name]; !ok {
+			continue
+		}
+		seen[container.Name] = true
+		if container.Image != want {
+			t.Errorf("%s image = %q, want %q", container.Name, container.Image, want)
+		}
+	}
+	for name, found := range seen {
+		if !found {
+			t.Errorf("%s container not found", name)
+		}
+	}
+}
+
 func TestBuildStatefulSet_RuntimeDeps_Both(t *testing.T) {
 	instance := newTestInstance("both-deps")
 	instance.Spec.RuntimeDeps.Pnpm = true

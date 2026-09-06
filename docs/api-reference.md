@@ -812,7 +812,7 @@ _Appears in:_
 | `registry` _string_ | Registry is the default container image registry override applied to<br />instances where spec.registry is unset. Replaces the registry prefix of<br />all container images (main, sidecars, init containers).<br />Example: "my-registry.example.com". |  | Optional: \{\} <br /> |
 | `image` _[ImageSpec](#imagespec)_ | Image is the default container image configuration applied to instances<br />where the corresponding instance fields are unset. Each sub-field is<br />merged independently (e.g. a cluster-default tag still applies even when<br />the instance sets its own repository). |  | Optional: \{\} <br /> |
 | `env` _[EnvVar](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.31/#envvar-v1-core) array_ | Env is a list of default environment variables merged into every<br />instance's container env. Instance-level env entries with the same Name<br />override the cluster default for that name. Defaults appear first in<br />the resulting env list, followed by instance-only names. |  | Optional: \{\} <br /> |
-| `runtimeDeps` _[RuntimeDepsSpec](#runtimedepsspec)_ | RuntimeDeps configures the default set of built-in init containers<br />(pnpm, Python) applied to instances where the corresponding fields are<br />unset. A cluster default of true for a runtime dep is always applied<br />unless the instance explicitly opts out (sets the field to false).<br />NOTE: because RuntimeDepsSpec fields are plain booleans, "unset" and<br />"false" are indistinguishable; cluster defaults are OR-merged here. |  | Optional: \{\} <br /> |
+| `runtimeDeps` _[RuntimeDepsSpec](#runtimedepsspec)_ | RuntimeDeps configures the default set of built-in init containers<br />(pnpm, Python) applied to instances where the corresponding fields are<br />unset. A cluster default of true for a runtime dep is always applied<br />unless the instance explicitly opts out (sets the field to false).<br />NOTE: because the enablement fields are plain booleans, "unset" and<br />"false" are indistinguishable; those fields are OR-merged here. UVImage<br />follows normal precedence and applies only when the instance omits it. |  | Optional: \{\} <br /> |
 
 
 #### OpenClawInstance
@@ -1143,6 +1143,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `pnpm` _boolean_ | Pnpm installs pnpm via corepack for npm-based MCP servers and skills. |  | Optional: \{\} <br /> |
 | `python` _boolean_ | Python installs Python 3.12 and uv for Python-based MCP servers and skills. |  | Optional: \{\} <br /> |
+| `uvImage` _[UVImageSpec](#uvimagespec)_ | UVImage configures the uv bootstrap image used by the built-in init-uv<br />and init-python containers. |  | Optional: \{\} <br /> |
 
 
 #### SecuritySpec
@@ -1335,6 +1336,24 @@ _Appears in:_
 | `hostname` _string_ | Hostname sets the Tailscale device name (defaults to instance name). |  | Optional: \{\} <br /> |
 | `authSSO` _boolean_ | AuthSSO enables passwordless login for tailnet members.<br />Sets gateway.auth.allowTailscale=true in the OpenClaw config. | false | Optional: \{\} <br /> |
 | `resources` _[ResourcesSpec](#resourcesspec)_ | Resources specifies compute resources for the Tailscale sidecar container. |  | Optional: \{\} <br /> |
+
+
+#### UVImageSpec
+
+
+
+UVImageSpec defines the uv bootstrap container image.
+
+
+
+_Appears in:_
+- [RuntimeDepsSpec](#runtimedepsspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `repository` _string_ | Repository is the container image repository. | ghcr.io/astral-sh/uv | Optional: \{\} <br /> |
+| `tag` _string_ | Tag is the container image tag. | 0.6-bookworm-slim | Optional: \{\} <br /> |
+| `digest` _string_ | Digest is the container image digest for supply chain security.<br />When set, it takes precedence over Tag. |  | Optional: \{\} <br /> |
 
 
 #### WebTerminalCredentialSpec

@@ -1697,6 +1697,29 @@ type RuntimeDepsSpec struct {
 	// Python installs Python 3.12 and uv for Python-based MCP servers and skills.
 	// +optional
 	Python bool `json:"python,omitempty"`
+
+	// UVImage configures the uv bootstrap image used by the built-in init-uv
+	// and init-python containers.
+	// +optional
+	UVImage *UVImageSpec `json:"uvImage,omitempty"`
+}
+
+// UVImageSpec defines the uv bootstrap container image.
+type UVImageSpec struct {
+	// Repository is the container image repository.
+	// +kubebuilder:default="ghcr.io/astral-sh/uv"
+	// +optional
+	Repository string `json:"repository,omitempty"`
+
+	// Tag is the container image tag.
+	// +kubebuilder:default="0.6-bookworm-slim"
+	// +optional
+	Tag string `json:"tag,omitempty"`
+
+	// Digest is the container image digest for supply chain security.
+	// When set, it takes precedence over Tag.
+	// +optional
+	Digest string `json:"digest,omitempty"`
 }
 
 // GatewaySpec configures the gateway reverse proxy and authentication token

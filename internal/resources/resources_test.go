@@ -9350,11 +9350,8 @@ func TestBuildConfigMap_ChromiumBrowserConfig(t *testing.T) {
 		t.Errorf("browser.attachOnly = %v, want true", browser["attachOnly"])
 	}
 
-	// remoteCdpTimeoutMs gives the browser service time to become ready,
-	// preventing permanent failure when tool registration fires first.
-	timeout, ok := browser["remoteCdpTimeoutMs"].(float64)
-	if !ok || timeout != 30000 {
-		t.Errorf("browser.remoteCdpTimeoutMs = %v, want 30000", browser["remoteCdpTimeoutMs"])
+	if _, hasRemoteCdpTimeout := browser["remoteCdpTimeoutMs"]; hasRemoteCdpTimeout {
+		t.Error("browser.remoteCdpTimeoutMs is not part of the canonical OpenClaw config")
 	}
 
 	profiles, ok := browser["profiles"].(map[string]interface{})
@@ -9373,8 +9370,8 @@ func TestBuildConfigMap_ChromiumBrowserConfig(t *testing.T) {
 		if p["cdpUrl"] != expectedCDP {
 			t.Errorf("browser.profiles.%s.cdpUrl = %v, want %q", name, p["cdpUrl"], expectedCDP)
 		}
-		if p["color"] != "#4285F4" {
-			t.Errorf("browser.profiles.%s.color = %v, want %q", name, p["color"], "#4285F4")
+		if _, ok := p["color"]; ok {
+			t.Errorf("browser.profiles.%s.color is not part of the canonical OpenClaw config", name)
 		}
 	}
 }
@@ -9497,30 +9494,6 @@ func TestBuildConfigMap_ChromiumUserOverrideCdpPort(t *testing.T) {
 	// cdpPort should be preserved
 	if defaultProfile["cdpPort"] != float64(18800) {
 		t.Errorf("user-set cdpPort should be preserved, got %v", defaultProfile["cdpPort"])
-	}
-}
-
-func TestBuildConfigMap_ChromiumUserOverrideRemoteCdpTimeout(t *testing.T) {
-	instance := newTestInstance("cr-override-timeout")
-	instance.Spec.Chromium.Enabled = true
-	instance.Spec.Config.Raw = &openclawv1alpha1.RawConfig{
-		RawExtension: runtime.RawExtension{
-			Raw: []byte(`{"browser":{"remoteCdpTimeoutMs":60000}}`),
-		},
-	}
-
-	cm := BuildConfigMap(instance, "", nil)
-	content := cm.Data["openclaw.json"]
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
-		t.Fatalf("failed to parse config JSON: %v", err)
-	}
-
-	browser := parsed["browser"].(map[string]interface{})
-	timeout := browser["remoteCdpTimeoutMs"].(float64)
-	if timeout != 60000 {
-		t.Errorf("user-set remoteCdpTimeoutMs should be preserved, got %v", timeout)
 	}
 }
 

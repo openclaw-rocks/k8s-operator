@@ -415,9 +415,6 @@ func BuildTailscaleServeConfig(instance *openclawv1alpha1.OpenClawInstance) stri
 //   - attachOnly=true: skips local browser binary detection. Without this,
 //     OpenClaw checks for a local Chrome/Chromium binary first, fails with
 //     "No supported browser found", and never attempts the remote CDP connection.
-//   - remoteCdpTimeoutMs=30000: gives the browser service time to become ready
-//     on startup, avoiding permanent failure when tool registration wins the
-//     race against browser service initialization.
 //   - cdpUrl on "default" and "chrome" profiles: resolved at config build time
 //     to the headless CDP Service DNS name (not an env var reference).
 //
@@ -449,14 +446,6 @@ func enrichConfigWithBrowser(configJSON []byte) ([]byte, error) {
 		browser["attachOnly"] = true
 	}
 
-	// remoteCdpTimeoutMs gives the browser service time to become ready.
-	// OpenClaw's tool registration can fire before the browser service is
-	// fully initialized. Without a timeout, the failure is cached permanently
-	// for the pod's lifetime.
-	if _, ok := browser["remoteCdpTimeoutMs"]; !ok {
-		browser["remoteCdpTimeoutMs"] = float64(30000)
-	}
-
 	profiles, _ := browser["profiles"].(map[string]interface{})
 	if profiles == nil {
 		profiles = make(map[string]interface{})
@@ -483,11 +472,6 @@ func enrichConfigWithBrowser(configJSON []byte) ([]byte, error) {
 			if _, hasPort := profile["cdpPort"]; !hasPort {
 				profile["cdpUrl"] = cdpURL
 			}
-		}
-
-		// color is required by OpenClaw's config validation
-		if _, hasColor := profile["color"]; !hasColor {
-			profile["color"] = "#4285F4"
 		}
 
 		profiles[profileName] = profile
